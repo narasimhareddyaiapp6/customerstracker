@@ -18,6 +18,7 @@ import { supabase } from '../services/supabaseClient';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 import { NetInfoService } from '../services/NetInfoService';
 import { OfflineStorageService } from '../services/OfflineStorageService';
 import { v4 as uuidv4 } from 'uuid';
@@ -294,7 +295,7 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
           Alert.alert('Error', 'Failed to load customers for the selected area.');
         } else {
           fetchedCustomers = data || [];
-          console.log('Fetched customers (online):', fetchedCustomers); // Debug log
+          console.log('Fetched customers (online):', fetchedCustomers.length);
           await OfflineStorageService.saveOfflineCustomers(fetchedCustomers);
         }
       } catch (error) {
@@ -303,10 +304,11 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
     } else {
       fetchedCustomers = await OfflineStorageService.getOfflineCustomers();
       fetchedCustomers = fetchedCustomers.filter(c => c.area_id === areaId);
-      console.log('Fetched customers (offline):', fetchedCustomers); // Debug log
+      console.log('Fetched customers (offline):', fetchedCustomers.length);
       Alert.alert('Offline Mode', 'Loading customers for the selected area from offline storage.');
     }
 
+    setAllCustomers(fetchedCustomers); // Populate allCustomers
     setCustomersInSelectedArea(fetchedCustomers);
     setFilteredCustomers(fetchedCustomers);
     setLoading(false);
@@ -320,7 +322,7 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
       const filtered = customersInSelectedArea.filter(cust =>
         (cust.name && cust.name.toLowerCase().includes(lowerCaseSearchText)) ||
         (cust.book_no && cust.book_no.toLowerCase().includes(lowerCaseSearchText)) ||
-        (cust.id && cust.id.toString().includes(customerSearchText)) // Search by ID
+        (cust.id && String(cust.id).includes(customerSearchText)) // Search by ID
       );
       setFilteredCustomers(filtered);
     } else {
@@ -330,44 +332,46 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
 
   // Fetch transactions based on selected customer
   useEffect(() => {
-    if (selectedCustomer) { // Only fetch transactions if a customer is selected
+    if (selectedCustomer?.id) { // Only fetch transactions if a customer is selected
       fetchTransactions(selectedCustomer.id);
     } else {
       setTransactions([]); // Clear transactions if no customer is selected
     }
-  }, [selectedCustomer]);
+  }, [selectedCustomer?.id]);
 
   const handleCustomerSelect = async (customerId) => {
-    const foundCustomer = filteredCustomers.find(cust => cust.id === customerId);
-    console.log('handleCustomerSelect: foundCustomer initially:', foundCustomer); // Debug log
+    if (!customerId) {
+      setSelectedCustomer(null);
+      setAmount('');
+      return;
+    }
+
+    const foundCustomer = customersInSelectedArea.find(cust => String(cust.id) === String(customerId));
+    console.log('handleCustomerSelect: foundCustomer:', foundCustomer?.name);
 
     if (foundCustomer) {
       let customerDetails = { ...foundCustomer };
-      console.log('handleCustomerSelect: customerDetails before fetching additional data:', customerDetails); // Debug log
       const isConnected = await NetInfoService.isNetworkAvailable();
 
       if (isConnected) {
         try {
-          // Fetch Total Paid Amount (totalAmountReceived in dashboard logic)
+          // Fetch Total Paid Amount
           const { data: transactionsData, error: transactionsError } = await supabase
             .from('transactions')
             .select('amount')
             .eq('customer_id', customerId)
-            .eq('transaction_type', 'repayment'); // Assuming 'repayment' is the type for paid amounts
+            .eq('transaction_type', 'repayment');
 
           let totalAmountReceived = 0;
           if (transactionsError) {
             console.error('Error fetching transactions for paid amount:', transactionsError);
-            Alert.alert('Error', 'Failed to fetch paid amount for customer.');
           } else {
             totalAmountReceived = transactionsData.reduce((sum, transaction) => sum + transaction.amount, 0);
-            customerDetails.totalPaidAmount = totalAmountReceived; // Keep for display consistency
+            customerDetails.totalPaidAmount = totalAmountReceived;
           }
 
-          // Apply dashboard's calculation logic for periods
           const expectedRepaymentAmount = foundCustomer.repayment_amount || 0;
           const daysToComplete = foundCustomer.days_to_complete || 0;
-
           const totalAmountToPay = expectedRepaymentAmount * daysToComplete;
 
           let calculatedRepaymentPeriod = 0;
@@ -376,27 +380,18 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
           }
 
           const remainingPeriods = daysToComplete - calculatedRepaymentPeriod;
-          const paidPeriods = daysToComplete - remainingPeriods; // Derived paid periods
+          const paidPeriods = daysToComplete - remainingPeriods;
 
           customerDetails.totalAmountToPay = totalAmountToPay;
-          customerDetails.paidPeriods = remainingPeriods; // Corrected: This should be the actual paid periods
-          customerDetails.totalPendingPeriods = paidPeriods; // Corrected: This should be the actual pending periods
-          customerDetails.totalAmountPending = totalAmountToPay - totalAmountReceived; // New calculation
+          customerDetails.paidPeriods = remainingPeriods;
+          customerDetails.totalPendingPeriods = paidPeriods;
+          customerDetails.totalAmountPending = totalAmountToPay - totalAmountReceived;
 
         } catch (error) {
-          console.error("Error in handleCustomerSelect while fetching additional data:", error);
-          Alert.alert('Error', 'Failed to load full customer details online.');
+          console.error("Error in handleCustomerSelect:", error);
         }
-      } else {
-        // Handle offline scenario: For now, set to N/A or 0
-        customerDetails.totalPaidAmount = 'N/A (Offline)';
-        customerDetails.totalAmountToPay = 'N/A (Offline)';
-        customerDetails.paidPeriods = 'N/A (Offline)';
-        customerDetails.totalPendingPeriods = 'N/A (Offline)';
-        Alert.alert('Offline Mode', 'Additional customer details not available offline.');
       }
 
-      console.log('handleCustomerSelect: customerDetails after all processing:', customerDetails); // Debug log
       setSelectedCustomer(customerDetails);
 
       if (foundCustomer.repayment_amount) {
@@ -420,7 +415,7 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
       const fileBuffer = Buffer.from(fileData, 'base64');
 
       const { data, error } = await supabase.storage
-        .from('locationtracker') // Assuming 'locationtracker' is your bucket name
+        .from('customerstracker')
         .upload(filePath, fileBuffer, {
           contentType: mimeType,
           upsert: true,
@@ -431,11 +426,10 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
         return null;
       }
 
-      const { data: urlData } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
       return urlData?.publicUrl || '';
     } catch (error) {
       Alert.alert('Error', 'Failed to upload image: ' + error.message);
-      // console.error('Image upload error:', error);
       return null;
     }
   };
@@ -455,11 +449,10 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                 aspect: [4, 3],
                 quality: 0.5,
               });
-              // Process result
               if (!result.canceled && result.assets[0]) {
                 const asset = result.assets[0];
                 if (!user || !user.id) {
-                  Alert.alert('Error', 'User not logged in or user ID not available.');
+                  Alert.alert('Error', 'User not logged in.');
                   return;
                 }
                 const isConnected = await NetInfoService.isNetworkAvailable();
@@ -470,7 +463,6 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                     Alert.alert('Success', 'Image selected and uploaded!');
                   }
                 } else {
-                  // Save image data locally for offline use
                   const imageId = uuidv4();
                   await OfflineStorageService.saveOfflineImage({
                     id: imageId,
@@ -478,13 +470,12 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                     mimeType: asset.mimeType || 'image/jpeg',
                     userId: user.id,
                   });
-                  setPaymentProofImage(imageId); // Store the local image ID
-                  Alert.alert('Offline', 'Image saved locally and will be uploaded when you are back online.');
+                  setPaymentProofImage(imageId);
+                  Alert.alert('Offline', 'Image saved locally.');
                 }
               }
             } catch (error) {
-              Alert.alert('Error', 'Failed to pick image from gallery: ' + error.message);
-              // console.error('Image picker gallery error:', error);
+              Alert.alert('Error', 'Failed to pick image: ' + error.message);
             }
           },
         },
@@ -498,11 +489,10 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                 aspect: [4, 3],
                 quality: 0.5,
               });
-              // Process result
               if (!result.canceled && result.assets[0]) {
                 const asset = result.assets[0];
                 if (!user || !user.id) {
-                  Alert.alert('Error', 'User not logged in or user ID not available.');
+                  Alert.alert('Error', 'User not logged in.');
                   return;
                 }
                 const isConnected = await NetInfoService.isNetworkAvailable();
@@ -513,7 +503,6 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                     Alert.alert('Success', 'Image selected and uploaded!');
                   }
                 } else {
-                  // Save image data locally for offline use
                   const imageId = uuidv4();
                   await OfflineStorageService.saveOfflineImage({
                     id: imageId,
@@ -521,27 +510,21 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                     mimeType: asset.mimeType || 'image/jpeg',
                     userId: user.id,
                   });
-                  setPaymentProofImage(imageId); // Store the local image ID
-                  Alert.alert('Offline', 'Image saved locally and will be uploaded when you are back online.');
+                  setPaymentProofImage(imageId);
+                  Alert.alert('Offline', 'Image saved locally.');
                 }
               }
             } catch (error) {
               Alert.alert('Error', 'Failed to take photo: ' + error.message);
-              // console.error('Image picker camera error:', error);
             }
           },
         },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ],
-      { cancelable: true }
+        { text: "Cancel", style: "cancel" },
+      ]
     );
   };
 
   const handleAddTransaction = async () => {
-    // console.log('handleAddTransaction called!');
     if (!selectedCustomer) {
       Alert.alert('Error', 'Please select a customer.');
       return;
@@ -554,12 +537,10 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
       Alert.alert('Error', 'Please select an Area.');
       return;
     }
-    // New validation for payment type
     if (!paymentType) {
-      Alert.alert('Error', 'Please select a Payment Type (Cash or UPI).');
+      Alert.alert('Error', 'Please select a Payment Type.');
       return;
     }
-    // UPI image upload is now optional
 
     setLoading(true);
     const transaction = {
@@ -579,10 +560,10 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
 
     if (!await NetInfoService.isNetworkAvailable()) {
       await OfflineStorageService.saveOfflineQuickTransaction(transaction);
-      Alert.alert('Offline', 'Transaction saved locally and will be synced when you are back online.');
+      Alert.alert('Offline', 'Transaction saved locally.');
       setAmount('');
       setRemarks('');
-      setPaymentProofImage(null); // Clear image for next transaction
+      setPaymentProofImage(null);
       setLoading(false);
       fetchTransactions(selectedCustomer.id);
       handleCustomerSelect(selectedCustomer.id);
@@ -594,12 +575,12 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
           .insert(transactionToSync);
 
         if (error) {
-          Alert.alert('Error', 'Failed to add transaction: ' + error.message);
+          Alert.alert('Error', 'Failed: ' + error.message);
         } else {
-          Alert.alert('Success', 'Transaction added successfully!');
+          Alert.alert('Success', 'Transaction added!');
           setAmount('');
           setRemarks('');
-          setPaymentProofImage(null); // Clear image for next transaction
+          setPaymentProofImage(null);
           fetchTransactions(selectedCustomer.id);
           handleCustomerSelect(selectedCustomer.id);
         }
@@ -624,52 +605,20 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
     </View>
   );
 
-  const handleCall = (phoneNumber) => {
-    if (phoneNumber) {
-      Linking.openURL(`tel:${phoneNumber}`);
-    } else {
-      Alert.alert('Error', 'Phone number not available.');
-    }
-  };
-
-  const handleSMS = (phoneNumber) => {
-    if (phoneNumber) {
-      Linking.openURL(`sms:${phoneNumber}`);
-    } else {
-      Alert.alert('Error', 'Phone number not available.');
-    }
-  };
-
-  const handleWhatsAppCall = (phoneNumber) => {
-    if (phoneNumber) {
-      Linking.openURL(`whatsapp://send?phone=${phoneNumber}&text=Hi`); // WhatsApp call link is usually part of chat
-      // For direct call, it's more complex and often not directly supported by Linking.
-      // This will open chat, user can initiate call from there.
-    } else {
-      Alert.alert('Error', 'Phone number not available.');
-    }
-  };
-
-  const handleWhatsAppSMS = (phoneNumber) => {
-    if (phoneNumber) {
-      Linking.openURL(`whatsapp://send?phone=${phoneNumber}&text=Hi`);
-    } else {
-      Alert.alert('Error', 'Phone number not available.');
-    }
-  };
+  const handleCall = (phoneNumber) => phoneNumber && Linking.openURL(`tel:${phoneNumber}`);
+  const handleSMS = (phoneNumber) => phoneNumber && Linking.openURL(`sms:${phoneNumber}`);
+  const handleWhatsAppCall = (phoneNumber) => phoneNumber && Linking.openURL(`whatsapp://send?phone=${phoneNumber}&text=Hi`);
+  const handleWhatsAppSMS = (phoneNumber) => phoneNumber && Linking.openURL(`whatsapp://send?phone=${phoneNumber}&text=Hi`);
 
   const handleGetDirections = (latitude, longitude) => {
     if (latitude && longitude) {
       const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
       const latLng = `${latitude},${longitude}`;
-      const label = 'Customer Location';
       const url = Platform.select({
-        ios: `${scheme}${label}@${latLng}`,
-        android: `${scheme}${latLng}(${label})`
+        ios: `${scheme}Customer@${latLng}`,
+        android: `${scheme}${latLng}(Customer)`
       });
       Linking.openURL(url);
-    } else {
-      Alert.alert('Error', 'Customer location not available.');
     }
   };
 
@@ -686,7 +635,7 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
           </TouchableOpacity>
           <Text style={styles.header}>Quick Transaction</Text>
 
-          <View style={styles.inputGroup}>
+          <View style={[styles.inputGroup, { zIndex: 5000 }]}>
             <Text style={styles.label}>Area:</Text>
             <AreaSearchBar
               areas={filteredAreas}
@@ -694,14 +643,14 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
               onAreaSelect={(id, name) => {
                 setSelectedAreaId(id);
                 setAreaSearchText(name);
+                setSelectedCustomer(null); // Reset customer when area changes
               }}
               selectedAreaName={areaSearchText}
             />
           </View>
 
-          {selectedAreaId && ( // Only show customer selection if an area is selected
+          {selectedAreaId && (
             <>
-              {/* Customer Search Input */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Search Customer (Card No / Name):</Text>
                 <TextInput
@@ -712,7 +661,6 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                 />
               </View>
 
-              {/* Customer Dropdown */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Customer:</Text>
                 <View style={styles.pickerContainer}>
@@ -721,6 +669,7 @@ export default function QuickTransactionScreen({ navigation, user, route }) {
                     onValueChange={(itemValue) => handleCustomerSelect(itemValue)}
                     style={styles.picker}
                   >
+                    <Picker.Item label="--- Select Customer ---" value={null} />
                     {filteredCustomers.length > 0 ? (
                       filteredCustomers.map((cust) => (
                         <Picker.Item

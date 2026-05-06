@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.narasimhaexpo.locationtrackermobile'
+    namespace 'com.narasimhaexpo.customerstracker'
     defaultConfig {
-        applicationId 'com.narasimhaexpo.locationtrackermobile'
+        applicationId 'com.narasimhaexpo.customerstracker'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

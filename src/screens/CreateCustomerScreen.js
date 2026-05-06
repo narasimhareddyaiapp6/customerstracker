@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, Button, Alert, TouchableOpacity, ScrollView, Modal, FlatList, Image, ActivityIndicator, Platform } from 'react-native';
-import WebView from '../components/WebView';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { supabase } from '../services/supabaseClient';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 import * as Sharing from 'expo-sharing';
 import { Linking } from 'react-native';
 import styles from './CustomerStyles';
@@ -35,7 +35,83 @@ const getCurrentTime = () => {
 
 export default function CreateCustomerScreen({ user, userProfile, route = {} }) {
   const navigation = useNavigation();
+  
+  // -- State Declarations --
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [email, setEmail] = useState('');
+  const [bookNo, setBookNo] = useState('');
+  const [customerType, setCustomerType] = useState('');
+  const [areaId, setAreaId] = useState(null);
+  const [areas, setAreas] = useState([]);
+  const [areaSearch, setAreaSearch] = useState('');
+  const [filteredAreas, setFilteredAreas] = useState([]);
+  const [selectedAreaName, setSelectedAreaName] = useState('');
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [remarks, setRemarks] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [address, setAddress] = useState('');
+  const [amountGiven, setAmountGiven] = useState('');
+  const [daysToComplete, setDaysToComplete] = useState('');
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [lateFee, setLateFee] = useState('');
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [transactionCustomer, setTransactionCustomer] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [newTransactionAmount, setNewTransactionAmount] = useState('');
+  const [newTransactionType, setNewTransactionType] = useState('repayment');
+  const [newTransactionRemarks, setNewTransactionRemarks] = useState('');
+  const [customerDocs, setCustomerDocs] = useState([]);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docModalUri, setDocModalUri] = useState('');
+  const [showCustomerFormModal, setShowCustomerFormModal] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [repaymentFrequency, setRepaymentFrequency] = useState('');
+  const [newTransactionPaymentType, setNewTransactionPaymentType] = useState('cash');
+  const [newTransactionUPIImageUrl, setNewTransactionUPIImageUrl] = useState('');
+  const [repaymentAmount, setRepaymentAmount] = useState('');
+  const [missingFields, setMissingFields] = useState([]);
+  const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [calculatorTarget, setCalculatorTarget] = useState(null);
+  const [accessibleUserIds, setAccessibleUserIds] = useState([]);
+  const [accessibleAreaIds, setAccessibleAreaIds] = useState([]);
+  const [masterCustomerTypes, setMasterCustomerTypes] = useState([]);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusChangeRemarks, setStatusChangeRemarks] = useState('');
+  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showTransactionDatePicker, setShowTransactionDatePicker] = useState(false);
+  const [transactionStartDate, setTransactionStartDate] = useState('');
+  const [transactionEndDate, setTransactionEndDate] = useState('');
+  const [expandedTransactionId, setExpandedTransactionId] = useState(null);
+  const [isTransactionSaving, setIsTransactionSaving] = useState(false);
+  const [loadingImages, setLoadingImages] = useState(false);
+  const [showEnhancedDatePicker, setShowEnhancedDatePicker] = useState(false);
+  const [repaymentPlans, setRepaymentPlans] = useState([]);
+  const [availableFrequencies, setAvailableFrequencies] = useState([]);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [planOptions, setPlanOptions] = useState([]);
+  const [selectedPlanName, setSelectedPlanName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMode, setDatePickerMode] = useState('start');
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [mapRegion, setMapRegion] = useState(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [currentRegion, setCurrentRegion] = useState(null);
+
+  // -- Helper Constants --
+  const isMissing = field => missingFields.includes(field);
+
+  // -- Effects --
   // Validate user prop
   useEffect(() => {
     if (!user?.id) {
@@ -104,16 +180,6 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       fetchAndDisplayCustomer();
     } 
   }, [route?.params?.customerId, route?.params?.readOnly, areas]);
-  const [name, setName] = useState('');
-  const [mobile, setMobile] = useState('');
-  const [email, setEmail] = useState('');
-  const [bookNo, setBookNo] = useState('');
-  const [customerType, setCustomerType] = useState('');
-  const [areaId, setAreaId] = useState(null);
-  const [areas, setAreas] = useState([]);
-  const [areaSearch, setAreaSearch] = useState(''); // For filtering customer list
-  const [filteredAreas, setFilteredAreas] = useState([]); // New state for filtered areas
-  const [selectedAreaName, setSelectedAreaName] = useState(''); // For AreaSearchBar display
 
   // Filter areas based on search text
   useEffect(() => {
@@ -127,135 +193,6 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       setFilteredAreas(areas); // Show all areas if search text is empty
     }
   }, [areaSearch, areas]);
-  const [latitude, setLatitude] = useState(null);
-  const [longitude, setLongitude] = useState(null);
-  const [remarks, setRemarks] = useState('');
-  const [landmark, setLandmark] = useState('');
-  const [address, setAddress] = useState('');
-  const [amountGiven, setAmountGiven] = useState('');
-  const [daysToComplete, setDaysToComplete] = useState('');
-  const [advanceAmount, setAdvanceAmount] = useState('');
-  const [lateFee, setLateFee] = useState('');
-  const [customers, setCustomers] = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [search, setSearch] = useState('');
-  const [showTransactionModal, setShowTransactionModal] = useState(false);
-  const [transactionCustomer, setTransactionCustomer] = useState(null);
-  const [transactions, setTransactions] = useState([]);
-  const [newTransactionAmount, setNewTransactionAmount] = useState('');
-  const [newTransactionType, setNewTransactionType] = useState('repayment');
-  const [newTransactionRemarks, setNewTransactionRemarks] = useState('');
-  const [customerDocs, setCustomerDocs] = useState([]);
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [docModalUri, setDocModalUri] = useState('');
-  const [showCustomerFormModal, setShowCustomerFormModal] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [repaymentFrequency, setRepaymentFrequency] = useState('');
-  const [newTransactionPaymentType, setNewTransactionPaymentType] = useState('cash');
-  const [newTransactionUPIImageUrl, setNewTransactionUPIImageUrl] = useState('');
-  const [repaymentAmount, setRepaymentAmount] = useState('');
-  const [missingFields, setMissingFields] = useState([]);
-  const isMissing = field => missingFields.includes(field);
-  const [showCalculatorModal, setShowCalculatorModal] = useState(false);
-  const [calculatorTarget, setCalculatorTarget] = useState(null); // To know which field to update
-  const [accessibleUserIds, setAccessibleUserIds] = useState([]);
-  const [accessibleAreaIds, setAccessibleAreaIds] = useState([]);
-  const [masterCustomerTypes, setMasterCustomerTypes] = useState([]);
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [statusChangeRemarks, setStatusChangeRemarks] = useState('');
-  // Add transaction date state
-  
-  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
-  const [showTransactionDatePicker, setShowTransactionDatePicker] = useState(false);
-  const [transactionStartDate, setTransactionStartDate] = useState('');
-  const [transactionEndDate, setTransactionEndDate] = useState('');
-
-  // Auto-populate repayment amount when transaction type changes
-  useEffect(() => {
-    if (transactionCustomer && newTransactionType === 'repayment') {
-      setNewTransactionAmount(transactionCustomer.repaymentAmount || '');
-    }
-  }, [newTransactionType, transactionCustomer]);
-
-  // Fetch master customer types
-  useEffect(() => {
-    async function fetchMasterCustomerTypes() {
-      const { data, error } = await supabase
-        .from('customer_types')
-        .select('id, status_name')
-        .order('status_name', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching master customer types:', error);
-      } else {
-        setMasterCustomerTypes(data || []);
-      }
-    }
-    fetchMasterCustomerTypes();
-  }, []);
-
-  // Calculate end date based on start date, frequency, and periods
-  const calculateEndDate = (startDate, frequency, periods) => {
-    if (!startDate || !frequency || !periods) return '';
-    
-    const start = new Date(startDate);
-    const periodsNum = parseInt(periods);
-    
-    switch (frequency) {
-      case 'daily':
-        start.setDate(start.getDate() + periodsNum);
-        break;
-      case 'weekly':
-        switch (frequency) {
-      case 'daily':
-        start.setDate(start.getDate() + periodsNum);
-        break;
-      case 'weekly':
-        start.setDate(start.getDate() + (periodsNum * 7));
-        break;
-      case 'monthly':
-        start.setMonth(start.getMonth() + periodsNum);
-        break;
-      case 'yearly':
-        start.setFullYear(start.getFullYear() + periodsNum);
-        break;
-    }
-      default:
-        start.setDate(start.getDate() + periodsNum);
-    }
-    
-    return start.toISOString().split('T')[0];
-  };
-
-  // Auto-calculate end date when start date, frequency, or periods change
-  useEffect(() => {
-    if (startDate && repaymentFrequency && daysToComplete) {
-      const calculatedEndDate = calculateEndDate(startDate, repaymentFrequency, daysToComplete);
-      setEndDate(calculatedEndDate);
-    }
-  }, [startDate, repaymentFrequency, daysToComplete]);
-  // Add state for expanded transaction
-  const [expandedTransactionId, setExpandedTransactionId] = useState(null);
-  const [isTransactionSaving, setIsTransactionSaving] = useState(false);
-  const [loadingImages, setLoadingImages] = useState(false);
-  // Add state for enhanced date picker
-  const [showEnhancedDatePicker, setShowEnhancedDatePicker] = useState(false);
-
-  // Add state for repayment plans
-  const [repaymentPlans, setRepaymentPlans] = useState([]);
-  const [availableFrequencies, setAvailableFrequencies] = useState([]);
-  const [selectedPlanId, setSelectedPlanId] = useState('');
-  const [planOptions, setPlanOptions] = useState([]);
-  const [selectedPlanName, setSelectedPlanName] = useState('');
-  
-  // Add state for start/end dates
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMode, setDatePickerMode] = useState('start'); // 'start' or 'end'
 
   const isImage = (doc) => {
     if (!doc || !doc.file_name) return false;
@@ -407,7 +344,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         return;
       }
       if (accessibleUserIds.length > 0 && accessibleAreaIds.length > 0) {
-        query = query.or(`user_id.in.(${accessibleUserIds.join(',')}),area_id.in.(${accessibleAreaIds.join(',')})`);
+        query = query.or(`user_id.in.("${accessibleUserIds.join('","')}"),area_id.in.(${accessibleAreaIds.join(',')})`);
       } else if (accessibleUserIds.length > 0) {
         query = query.in('user_id', accessibleUserIds);
       } else if (accessibleAreaIds.length > 0) {
@@ -1193,7 +1130,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       const fileBuffer = Buffer.from(fileDataBuffer, 'base64');
       // Upload to Supabase Storage
       const { data, error } = await supabase.storage
-        .from('locationtracker')
+        .from('customerstracker')
         .upload(filePath, fileBuffer, {
           contentType: mimeType,
           upsert: true,
@@ -1205,7 +1142,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       }
       console.log('Customer image uploaded. File path:', filePath);
       // Get the public URL
-      const { data: urlData } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl;
       console.log('Generated Supabase customer image URL:', publicUrl);
 
@@ -1341,7 +1278,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
       const fileBuffer = Buffer.from(fileData, 'base64');
       const { data, error } = await supabase.storage
-        .from('locationtracker')
+        .from('customerstracker')
         .upload(filePath, fileBuffer, {
           contentType: mimeType,
           upsert: true,
@@ -1351,7 +1288,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         return null;
       }
       console.log('Transaction image uploaded. File path:', filePath);
-      const { data: urlData } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
       console.log('Generated Supabase transaction image URL:', urlData?.publicUrl);
       return urlData?.publicUrl; // Return the full URL
     } catch (error) {
@@ -1361,7 +1298,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   };
 
   const getTransactionImageUrl = (filePath) => {
-    const { data } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+    const { data } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
     console.log('Display transaction image. File path:', filePath, 'URL:', data?.publicUrl);
     return data?.publicUrl || '';
   };
@@ -2300,7 +2237,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                 <Text style={styles.formLabel}>Customer Type</Text>
                 <Picker selectedValue={selectedCustomer.customer_type} onValueChange={val => setSelectedCustomer({ ...selectedCustomer, customer_type: val })} style={styles.formPicker}>
                   <Picker.Item label="Select Type" value="" />
-                  {CUSTOMER_TYPES.map(type => <Picker.Item key={type} label={type} value={type} />)}
+                  {masterCustomerTypes.map(type => <Picker.Item key={type.id} label={type.status_name} value={type.status_name} />)}
                 </Picker>
                 <Text style={styles.formLabel}>Status</Text>
                 <TextInput value={selectedCustomer.status} editable={false} style={[styles.input, { backgroundColor: '#eee' }]} />

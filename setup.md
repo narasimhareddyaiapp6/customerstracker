@@ -4,7 +4,7 @@
 
 ### 1. Install Dependencies
 ```bash
-cd UserTracking
+cd customers-tracker
 npm install
 ```
 

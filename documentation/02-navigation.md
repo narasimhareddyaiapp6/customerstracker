@@ -10,7 +10,7 @@ The application uses a combination of Stack Navigators and Tab Navigators to man
 
 <img src="images/overall-navigation-flow-diagram.png" alt="Overall Navigation Flow Diagram (PNG)" />
 
-<span style="font-size: 2em;">📥</span> [Download Latest APK](../releases/locationtracker_v1.0.0.7z)
+<span style="font-size: 2em;">📥</span> [Download Latest APK](../releases/customerstracker_v1.0.0.7z)
 
 ### Authentication Flow
 

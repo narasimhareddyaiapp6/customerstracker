@@ -94,7 +94,7 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
       const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
       const fileBuffer = Buffer.from(fileData, 'base64');
       const { data, error } = await supabase.storage
-        .from('locationtracker')
+        .from('customerstracker')
         .upload(filePath, fileBuffer, {
           contentType: mimeType,
           upsert: true,
@@ -103,7 +103,7 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
         Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);
         return null;
       }
-      const { data: urlData } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
       return urlData?.publicUrl;
     } catch (error) {
       Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);

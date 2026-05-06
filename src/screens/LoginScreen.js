@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { supabase } from '../services/supabaseClient';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -169,7 +170,7 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.header}>
           <Text style={styles.icon}>📍</Text>
-          <Text style={styles.title}>Location Tracker</Text>
+          <Text style={styles.title}>Customers Tracker</Text>
           <Text style={styles.subtitle}>Sign in to track your location</Text>
         </View>
 
@@ -220,6 +221,13 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
             <Text style={styles.signupText}>Don't have an account? </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
               <Text style={styles.signupLink}>Sign Up</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.downloadContainer}>
+            <Text style={styles.downloadText}>Android App: </Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://NarasimhaProcess.github.io/customers-tracker/releases/customerstracker.apk')}>
+              <Text style={styles.downloadLink}>build download here</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -315,6 +323,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#007AFF',
     fontWeight: '600',
+  },
+  downloadContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  downloadText: {
+    fontSize: 14,
+    color: '#8E8E93',
+  },
+  downloadLink: {
+    fontSize: 14,
+    color: '#34C759',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   footer: {
     alignItems: 'center',

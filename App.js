@@ -5,6 +5,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Linking, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import { MaterialIcons } from '@expo/vector-icons';
 import CalculatorModal from './src/components/CalculatorModal';
@@ -54,6 +55,8 @@ import QuickTransactionScreen from './src/screens/QuickTransactionScreen';
 
 // Services
 import { supabase } from './src/services/supabaseClient';
+import { locationTracker } from './src/services/locationTracker';
+import { OfflineStorageService } from './src/services/OfflineStorageService';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -230,9 +233,26 @@ export default function App() {
 
 
 
+  // 📍 Location tracking
+  useEffect(() => {
+    if (isAuthenticated && user && userProfile) {
+      if (userProfile.location_status === 1) {
+        console.log('🚀 Starting location tracking...');
+        locationTracker.startTracking(userProfile.id, userProfile.email);
+      } else {
+        console.log('🛑 Stopping location tracking...');
+        locationTracker.stopTracking();
+      }
+    }
+  }, [isAuthenticated, user?.id, userProfile?.location_status]);
+
   const loadUserProfile = async (userId) => {
     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
     if (data) {
+      // Save for background task
+      await OfflineStorageService.saveUserId(data.id);
+      await OfflineStorageService.saveUserEmail(data.email);
+
       const groups = await fetchUserGroups(data.id, data.user_type);
       const profileWithGroups = { ...data, groups };
       setUserProfile(profileWithGroups);
@@ -286,6 +306,10 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    console.log('🛑 Logging out, stopping location tracking...');
+    await locationTracker.stopTracking();
+    await AsyncStorage.removeItem('user_id');
+    await AsyncStorage.removeItem('user_email');
     await SecureStoreAdapter.removeItem('userSession');
     await supabase.auth.signOut();
   };

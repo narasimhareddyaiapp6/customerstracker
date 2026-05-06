@@ -1,4 +1,4 @@
-package com.narasimhaexpo.locationtrackermobile
+package com.narasimhaexpo.customerstracker
 
 import android.app.Application
 import android.content.res.Configuration

@@ -191,7 +191,7 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
       const fileBuffer = Buffer.from(fileData, 'base64');
       
       const { data, error } = await supabase.storage
-        .from('locationtracker')
+        .from('customerstracker')
         .upload(filePath, fileBuffer, {
           contentType: mimeType,
           upsert: true,
@@ -202,7 +202,7 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
         return null;
       }
       
-      const { data: urlData } = supabase.storage.from('locationtracker').getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
       const publicUrl = urlData?.publicUrl || '';
       
       const { error: updateError } = await supabase.from('users').update({ profile_photo_data: publicUrl }).eq('id', userId);

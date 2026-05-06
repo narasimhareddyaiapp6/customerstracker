@@ -6,7 +6,7 @@ try {
 
 export default {
   "expo": {
-    "name": "Location Tracker",
+    "name": "Customers Tracker",
     "slug": "customerstracking",
     "owner": "narasimhaexpo",
     "scheme": "usertracking",

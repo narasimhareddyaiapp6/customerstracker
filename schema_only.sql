@@ -4536,7 +4536,7 @@ ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
 -- Name: objects FileUploadView nnqi8z_0; Type: POLICY; Schema: storage; Owner: -
 --
 
-CREATE POLICY "FileUploadView nnqi8z_0" ON storage.objects FOR SELECT USING ((bucket_id = 'locationtracker'::text));
+CREATE POLICY "FileUploadView nnqi8z_0" ON storage.objects FOR SELECT USING ((bucket_id = 'customerstracker'::text));
 
 
 --
@@ -4544,7 +4544,7 @@ CREATE POLICY "FileUploadView nnqi8z_0" ON storage.objects FOR SELECT USING ((bu
 -- Name: objects FileUploadView nnqi8z_1; Type: POLICY; Schema: storage; Owner: -
 --
 
-CREATE POLICY "FileUploadView nnqi8z_1" ON storage.objects FOR INSERT WITH CHECK ((bucket_id = 'locationtracker'::text));
+CREATE POLICY "FileUploadView nnqi8z_1" ON storage.objects FOR INSERT WITH CHECK ((bucket_id = 'customerstracker'::text));
 
 
 --
@@ -4552,7 +4552,7 @@ CREATE POLICY "FileUploadView nnqi8z_1" ON storage.objects FOR INSERT WITH CHECK
 -- Name: objects FileUploadView nnqi8z_2; Type: POLICY; Schema: storage; Owner: -
 --
 
-CREATE POLICY "FileUploadView nnqi8z_2" ON storage.objects FOR UPDATE USING ((bucket_id = 'locationtracker'::text));
+CREATE POLICY "FileUploadView nnqi8z_2" ON storage.objects FOR UPDATE USING ((bucket_id = 'customerstracker'::text));
 
 
 --
@@ -4560,7 +4560,7 @@ CREATE POLICY "FileUploadView nnqi8z_2" ON storage.objects FOR UPDATE USING ((bu
 -- Name: objects FileUploadView nnqi8z_3; Type: POLICY; Schema: storage; Owner: -
 --
 
-CREATE POLICY "FileUploadView nnqi8z_3" ON storage.objects FOR DELETE USING ((bucket_id = 'locationtracker'::text));
+CREATE POLICY "FileUploadView nnqi8z_3" ON storage.objects FOR DELETE USING ((bucket_id = 'customerstracker'::text));
 
 
 --

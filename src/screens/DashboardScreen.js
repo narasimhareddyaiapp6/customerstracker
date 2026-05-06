@@ -771,6 +771,7 @@ const styles = StyleSheet.create({
     margin: 16,
     marginBottom: 0,
     borderRadius: 12,
+    zIndex: 5000,
   },
   customerSearchInput: {
     borderWidth: 1,

@@ -488,7 +488,7 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
             <Text style={styles.sectionHeader}>Add New Expense</Text>
 
             <Text style={styles.inputLabel}>Area:</Text>
-            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', zIndex: 5000}}>
               <AreaSearchBar
                 style={{ flex: 1 }}
                 areas={allAreas}

@@ -122,7 +122,7 @@ export default function SignupScreen({ navigation, route }) {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.header}>
           <Text style={styles.icon}>📍</Text>
-          <Text style={styles.title}>Location Tracker</Text>
+          <Text style={styles.title}>Customers Tracker</Text>
           <Text style={styles.subtitle}>Create your tracking account</Text>
         </View>
 
