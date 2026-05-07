@@ -23,6 +23,10 @@ if (Platform.OS === 'web') {
       src: url('https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/3.0.1/iconfont/MaterialIcons-Regular.ttf') format('truetype');
     }
     @font-face {
+      font-family: 'Material Icons';
+      src: url('https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/3.0.1/iconfont/MaterialIcons-Regular.ttf') format('truetype');
+    }
+    @font-face {
       font-family: 'FontAwesome';
       src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/fonts/fontawesome-webfont.ttf') format('truetype');
     }
