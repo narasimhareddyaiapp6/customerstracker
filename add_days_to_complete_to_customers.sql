@@ -1,1 +1,0 @@
-ALTER TABLE public.customers ADD COLUMN days_to_complete integer;

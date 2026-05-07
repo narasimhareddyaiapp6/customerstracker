@@ -9,7 +9,7 @@
     "ios": "npx expo start --ios",
     "web": "npx expo start --web",
     "eject": "expo eject",
-    "predeploy": "npx expo export --platform web && touch dist/.nojekyll && sed -i 's|src=\"/|src=\"/customerstracker/|g' dist/index.html && sed -i 's|href=\"/|href=\"/customerstracker/|g' dist/index.html",
+    "predeploy": "npx expo export --platform web && node fix-paths.js",
     "deploy": "gh-pages -d dist --dotfiles"
   },
   "dependencies": {

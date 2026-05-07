@@ -20,7 +20,8 @@ export default {
       "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
-      "**/*"
+      "assets/**/*",
+      "src/assets/**/*"
     ],
     "ios": {
       "supportsTablet": true
