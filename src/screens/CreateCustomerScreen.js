@@ -19,6 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import AreaSearchBar from '../components/AreaSearchBar';
 import CustomerItemActions from '../components/CustomerItemActions';
 import CalculatorModal from '../components/CalculatorModal';
+import { fetchAreasForUser } from '../services/AreaService';
 
 const getDayName = () => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -80,9 +81,6 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [missingFields, setMissingFields] = useState([]);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
-  const [calculatorTarget, setCalculatorTarget] = useState(null);
-  const [accessibleUserIds, setAccessibleUserIds] = useState([]);
-  const [accessibleAreaIds, setAccessibleAreaIds] = useState([]);
   const [masterCustomerTypes, setMasterCustomerTypes] = useState([]);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusChangeRemarks, setStatusChangeRemarks] = useState('');
@@ -204,179 +202,61 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
 
   useEffect(() => {
     async function fetchAreas() {
-      // Fetch all areas initially, regardless of search text
-      if (areas.length === 0) {
-        if (userProfile?.user_type === 'superadmin') {
-          // Superadmin fetches all areas
-          const { data, error } = await supabase
-            .from('area_master')
-            .select('id, area_name');
-          
-          if (error) {
-            console.error('fetchAreas (superadmin): Error fetching areas:', error);
-            return;
-          }
-          setAreas(data || []);
-        } else {
-          // Fetch areas for user's groups
-          console.log('fetchAreas: Fetching areas for user ID:', user?.id);
-          const currentDayName = getDayName();
-          const currentTime = getCurrentTime();
-
-          const { data, error } = await supabase
-            .from('user_groups')
-            .select('group_id, groups (group_areas (area_master (id, area_name, enable_day, day_of_week, start_time_filter, end_time_filter)))') // Select new columns
-            .eq('user_id', user.id);
-          
-          if (error) {
-            console.error('fetchAreas: Error fetching user groups:', error);
-            return;
-          }
-
-          console.log('fetchAreas: User groups data:', data);
-
-          const areaList = [];
-          const areaIdSet = new Set(); // Define areaIdSet here
-          (data || []).forEach(g => {
-            (g.groups?.group_areas || []).forEach(ga => {
-              const area = ga.area_master;
-              if (area && !areaIdSet.has(area.id)) {
-                // Apply client-side filtering for 'user' type if conditions are met
-                if (userProfile?.user_type === 'user') {
-                  const areaStartTime = area.start_time_filter ? area.start_time_filter.substring(0, 5) : '';
-                  const areaEndTime = area.end_time_filter ? area.end_time_filter.substring(0, 5) : '';
-
-                  const isTimeFiltered = (
-                    !area.enable_day ||
-                    (area.enable_day &&
-                    area.day_of_week === currentDayName &&
-                    (
-                      (areaStartTime === '00:00' && areaEndTime === '00:00') ||
-                      (areaStartTime <= areaEndTime && currentTime >= areaStartTime && currentTime <= areaEndTime) ||
-                      (areaStartTime > areaEndTime && (currentTime >= areaStartTime || currentTime <= areaEndTime))
-                    ))
-                  );
-
-                  if (isTimeFiltered) {
-                    areaIdSet.add(area.id);
-                    areaList.push(area);
-                  }
-                } else {
-                  // For other user types, add without time filtering
-                  areaIdSet.add(area.id);
-                  areaList.push(area);
-                }
-              }
-            });
-          });
-          console.log('fetchAreas: Constructed area list:', areaList);
-          setAreas(areaList);
-        }
+      try {
+        const userId = user?.id || userProfile?.id;
+        const userType = userProfile?.user_type || user?.user_type;
+        const areaList = await fetchAreasForUser({ userId, userType });
+        setAreas(areaList || []);
+      } catch (error) {
+        console.error('fetchAreas: Error fetching areas:', error);
       }
     }
-    if (user?.id) fetchAreas();
-  }, [user?.id, userProfile]); // Removed areaSearch from dependencies
+    fetchAreas();
+  }, [user?.id, userProfile]);
 
-  // Fetch accessible user IDs and area IDs based on group memberships
+  // Auto-select the first accessible area when areas load (matches Dashboard behavior)
   useEffect(() => {
-    async function fetchAccessibleIds() {
-      if (!user?.id) return;
-
-      const { data: userGroups, error: userGroupsError } = await supabase
-        .from('user_groups')
-        .select('group_id')
-        .eq('user_id', user.id);
-
-      if (userGroupsError) {
-        console.error('Error fetching user groups:', userGroupsError);
-        return;
+    if (areas && areas.length > 0) {
+      const currentAreaStillValid = areas.some(a => a.id === areaId);
+      if (!areaId || !currentAreaStillValid) {
+        setAreaId(areas[0].id);
+        setSelectedAreaName(areas[0].area_name);
       }
-
-      const groupIds = userGroups.map(ug => ug.group_id);
-
-      if (groupIds.length === 0) {
-        setAccessibleUserIds([user.id]); // Only current user if no groups
-        setAccessibleAreaIds([]);
-        return;
-      }
-
-      // Fetch all users in these groups
-      const { data: groupUsers, error: groupUsersError } = await supabase
-        .from('user_groups')
-        .select('user_id')
-        .in('group_id', groupIds);
-
-      if (groupUsersError) {
-        console.error('Error fetching group users:', groupUsersError);
-        return;
-      }
-
-      const uniqueUserIds = [...new Set(groupUsers.map(gu => gu.user_id))];
-      setAccessibleUserIds(uniqueUserIds);
-
-      // Fetch all areas associated with these groups
-      const { data: groupAreas, error: groupAreasError } = await supabase
-        .from('group_areas')
-        .select('area_id')
-        .in('group_id', groupIds);
-
-      if (groupAreasError) {
-        console.error('Error fetching group areas:', groupAreasError);
-        return;
-      }
-
-      const uniqueAreaIds = [...new Set(groupAreas.map(ga => ga.area_id))];
-      setAccessibleAreaIds(uniqueAreaIds);
-
+    } else {
+      setAreaId(null);
+      setSelectedAreaName('');
     }
-    fetchAccessibleIds();
-  }, [user?.id]);
+  }, [areas]);
 
   const fetchCustomers = useCallback(async () => {
-    let query = supabase
-      .from('customers')
-      .select('*');
+    if (!areaId) {
+      setCustomers([]);
+      return;
+    }
 
-    // If the user is not a superadmin, apply group-based access control
-    if (userProfile?.user_type !== 'superadmin') {
-      if (accessibleUserIds.length === 0 && accessibleAreaIds.length === 0) {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('area_id', areaId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('fetchCustomers error:', error);
         setCustomers([]);
         return;
       }
-      if (accessibleUserIds.length > 0 && accessibleAreaIds.length > 0) {
-        query = query.or(`user_id.in.("${accessibleUserIds.join('","')}"),area_id.in.(${accessibleAreaIds.join(',')})`);
-      } else if (accessibleUserIds.length > 0) {
-        query = query.in('user_id', accessibleUserIds);
-      } else if (accessibleAreaIds.length > 0) {
-        query = query.in('area_id', accessibleAreaIds);
-      }
-    }
 
-    // Area filter (if a specific area is selected in the UI)
-    if (areaId) {
-      query = query.eq('area_id', areaId);
+      setCustomers(data || []);
+    } catch (err) {
+      console.error('fetchCustomers exception:', err);
+      setCustomers([]);
     }
-
-    query = query
-      .order('created_at', { ascending: false });
-
-    const { data, error } = await query;
-    let filtered = data || [];
-    // Customer search filter
-    if (search) {
-      filtered = filtered.filter(c =>
-        (c.name && c.name.toLowerCase().includes(search.toLowerCase())) ||
-        (c.mobile && c.mobile.includes(search)) ||
-        (c.email && c.email.toLowerCase().includes(search.toLowerCase())) ||
-        (c.book_no && c.book_no.toString().toLowerCase().includes(search.toLowerCase()))
-      );
-    }
-    setCustomers(filtered);
-  }, [user, search, areaSearch, areas, areaId, accessibleUserIds, accessibleAreaIds, userProfile]); // Dependencies for useCallback
+  }, [areaId]);
 
   useEffect(() => {
-    if (user?.id) fetchCustomers();
-  }, [user?.id, areaId, fetchCustomers]);
+    fetchCustomers();
+  }, [fetchCustomers]);
 
   // Fetch repayment plans on mount and extract unique frequencies
   useEffect(() => {
@@ -1004,6 +884,17 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     // Reset any error states
     setMissingFields([]);
     
+    // Refresh areas if list is empty
+    if (areas.length === 0) {
+      const userId = user?.id || userProfile?.id;
+      const userType = userProfile?.user_type || user?.user_type;
+      fetchAreasForUser({ userId, userType }).then(areaList => {
+        if (areaList && areaList.length > 0) {
+          setAreas(areaList);
+        }
+      }).catch(err => console.error('Error refreshing areas on modal open:', err));
+    }
+
     // Show the modal
     setShowCustomerFormModal(true);
   };
@@ -1227,12 +1118,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         setSelectedLocation(null);
         
         // Refresh customer list
-        const { data } = await supabase
-          .from('customers')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-        setCustomers(data || []);
+        fetchCustomers();
       }
     } catch (error) {
       console.error('Error updating location:', error);
@@ -1839,23 +1725,31 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
 
   return (
     <View style={styles.container}>
-      <AreaSearchBar
-        areas={filteredAreas}
-        onChangeText={setAreaSearch}
-        onAreaSelect={(id, name) => {
-          console.log('Area selected:', { id, name });
-          setAreaId(id);
-          setSelectedAreaName(name);
-        }}
-        selectedAreaName={selectedAreaName}
-      />
+      <View style={[styles.searchContainer, { zIndex: 999999, elevation: 999999, position: 'relative' }]}>
+        <AreaSearchBar
+          areas={areas}
+          onChangeText={(text) => {
+            if (!text) {
+              setAreaId(null);
+              setSelectedAreaName('');
+            }
+          }}
+          onAreaSelect={(id, name) => {
+            setAreaId(id);
+            setSelectedAreaName(name);
+          }}
+          selectedAreaName={selectedAreaName}
+        />
+      </View>
+
       <TextInput
         value={search}
         onChangeText={setSearch}
-        placeholder="Search by Card No, Name, Mobile, Email, Area (use comma to search multiple)"
-        style={styles.searchInput}
+        placeholder="Search by Card No, Name, Mobile, Email..."
+        placeholderTextColor="#8E8E93"
+        style={[styles.searchInput, { zIndex: 1, elevation: 1, position: 'relative' }]}
       />
-      <View style={{ flexDirection: 'row', backgroundColor: '#E3E6F0', borderTopLeftRadius: 8, borderTopRightRadius: 8, paddingVertical: 8 }}>
+      <View style={{ flexDirection: 'row', backgroundColor: '#E3E6F0', borderTopLeftRadius: 8, borderTopRightRadius: 8, paddingVertical: 8, zIndex: 1, elevation: 1, position: 'relative' }}>
         <Text style={[styles.headerCell, { flex: 1.5 }]}>Card No</Text>
         <Text style={[styles.headerCell, { flex: 2 }]}>Name</Text>
         <Text style={[styles.headerCell, { flex: 2 }]}>Mobile</Text>
@@ -1865,8 +1759,16 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         data={filteredCustomers}
         renderItem={renderCustomerItem}
         keyExtractor={item => item.id.toString()}
-        style={styles.customerList}
-        ListEmptyComponent={<Text style={styles.emptyListText}>No customers found.</Text>}
+        style={[styles.customerList, { zIndex: 1, elevation: 1 }]}
+        ListEmptyComponent={
+          <View style={{ padding: 28, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={[styles.emptyListText, { fontSize: 16, color: '#555', textAlign: 'center' }]}>
+              {!areaId
+                ? '📍 Please select an area from the search bar above to view customers.'
+                : 'No customers found in this area.'}
+            </Text>
+          </View>
+        }
       />
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginVertical: 12 }}>
         <TouchableOpacity onPress={openCreateCustomerModal} style={{ backgroundColor: '#4A90E2', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3, alignSelf: 'flex-end' }}>
@@ -2026,16 +1928,16 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
               />
 
               <Text style={styles.sectionHeader}>Other</Text>
-        <Text style={styles.formLabel}>Area:</Text>
+        <Text style={styles.formLabel}>Area *</Text>
         <Picker
-          selectedValue={areaId}
-          onValueChange={(itemValue) => setAreaId(itemValue)}
-          style={[styles.input, isMissing('Area') && styles.inputError]}
+          selectedValue={areaId ? String(areaId) : ''}
+          onValueChange={(itemValue) => setAreaId(itemValue ? Number(itemValue) : null)}
+          style={[styles.formPicker, isMissing('Area') && styles.inputError]}
           enabled={!isReadOnly}
         >
-          <Picker.Item label="Select Area" value={null} />
+          <Picker.Item label="Select Area" value="" />
           {areas.map(area => (
-            <Picker.Item key={area.id} label={area.area_name} value={area.id} />
+            <Picker.Item key={area.id} label={area.area_name} value={String(area.id)} />
           ))}
         </Picker>
 
@@ -2139,12 +2041,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                           setIsEditing(false);
                           setSelectedCustomer(null);
                           // Refresh customer list
-                          const { data } = await supabase
-                            .from('customers')
-                            .select('*')
-                            .eq('user_id', user.id)
-                            .order('created_at', { ascending: false });
-                          setCustomers(data || []);
+                          fetchCustomers();
                         }}
                       ]);
                     }} style={styles.deleteButton}>
@@ -2241,10 +2138,14 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                 </Picker>
                 <Text style={styles.formLabel}>Status</Text>
                 <TextInput value={selectedCustomer.status} editable={false} style={[styles.input, { backgroundColor: '#eee' }]} />
-                <Text style={styles.formLabel}>Area ID</Text>
-                <Picker selectedValue={selectedCustomer.area_id} onValueChange={val => setSelectedCustomer({ ...selectedCustomer, area_id: val })} style={styles.formPicker}>
-                  <Picker.Item label="Select Area" value={null} />
-                  {areas.map(area => <Picker.Item key={area.id} label={area.area_name} value={area.id} />)}
+                <Text style={styles.formLabel}>Area</Text>
+                <Picker
+                  selectedValue={selectedCustomer.area_id ? String(selectedCustomer.area_id) : ''}
+                  onValueChange={val => setSelectedCustomer({ ...selectedCustomer, area_id: val ? Number(val) : null })}
+                  style={styles.formPicker}
+                >
+                  <Picker.Item label="Select Area" value="" />
+                  {areas.map(area => <Picker.Item key={area.id} label={area.area_name} value={String(area.id)} />)}
                 </Picker>
                 
                 {/* Location Picker Section */}
@@ -2590,12 +2491,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                     setShowCustomerModal(false);
                     setSelectedCustomer(null);
                     // Refresh customer list
-                    const { data } = await supabase
-                      .from('customers')
-                      .select('*')
-                      .eq('user_id', user.id)
-                      .order('created_at', { ascending: false });
-                    setCustomers(data || []);
+                    fetchCustomers();
                   }
                 }} style={styles.saveButton}>
                   <Text style={styles.saveButtonText}>Save</Text>

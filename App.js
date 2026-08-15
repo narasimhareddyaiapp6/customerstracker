@@ -395,7 +395,7 @@ export default function App() {
             </Stack.Screen>
 
             <Stack.Screen name="QuickTransaction">
-              {(props) => <QuickTransactionScreen {...props} user={userProfile} />}
+              {(props) => <QuickTransactionScreen {...props} user={user} userProfile={userProfile} />}
             </Stack.Screen>
           </>
         )}

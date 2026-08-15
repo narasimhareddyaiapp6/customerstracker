@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {
@@ -20,11 +20,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: '#fff',
     color: '#263238',
+    zIndex: 1,
+    elevation: 1,
+    position: 'relative',
   },
   list: {
     marginBottom: 8,
     backgroundColor: '#fff',
     borderRadius: 8,
+    zIndex: 1,
+    elevation: 1,
   },
   row: {
     flexDirection: 'row',
@@ -288,6 +293,48 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  searchContainer: {
+    zIndex: 999999,
+    elevation: 999999,
+    position: 'relative',
+    marginBottom: 8,
+    ...Platform.select({
+      ios: {
+        zIndex: 999999,
+      },
+      android: {
+        elevation: 999999,
+      },
+      web: {
+        zIndex: 999999,
+      },
+    }),
+  },
+  areaSelectCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  pickerWrapper: {
+    backgroundColor: '#F0F8FF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    overflow: 'hidden',
+  },
+  areaPicker: {
+    height: 50,
+    width: '100%',
+    color: '#1A237E',
   },
 });
 

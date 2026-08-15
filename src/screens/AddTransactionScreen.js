@@ -7,6 +7,7 @@ import styles from './CustomerStyles';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { fetchAreasForUser } from '../services/AreaService';
 
 export default function AddTransactionScreen({ user, userProfile, navigation }) {
   const [areas, setAreas] = useState([]);
@@ -22,33 +23,18 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
 
   useEffect(() => {
     async function fetchAreas() {
-      if (!user?.id) return;
-      const { data: userGroups, error: userGroupsError } = await supabase
-        .from('user_groups')
-        .select('group_id')
-        .eq('user_id', user.id);
-      if (userGroupsError) {
-        console.error('Error fetching user groups:', userGroupsError);
-        return;
+      const userId = user?.id || userProfile?.id;
+      if (!userId && !userProfile && !user) return;
+      try {
+        const userType = userProfile?.user_type || user?.user_type;
+        const fetchedAreas = await fetchAreasForUser({ userId, userType });
+        setAreas(fetchedAreas || []);
+      } catch (error) {
+        console.error('Error fetching areas in AddTransactionScreen:', error);
       }
-      const groupIds = userGroups.map(ug => ug.group_id);
-      if (groupIds.length === 0) {
-        setAreas([]);
-        return;
-      }
-      const { data: groupAreas, error: groupAreasError } = await supabase
-        .from('group_areas')
-        .select('area_master (id, area_name)')
-        .in('group_id', groupIds);
-      if (groupAreasError) {
-        console.error('Error fetching group areas:', groupAreasError);
-        return;
-      }
-      const fetchedAreas = groupAreas.map(ga => ga.area_master).filter(Boolean);
-      setAreas(fetchedAreas);
     }
     fetchAreas();
-  }, [user]);
+  }, [user?.id, userProfile]);
 
   useEffect(() => {
     async function fetchCustomers() {

@@ -18,19 +18,7 @@ import { OfflineStorageService } from '../services/OfflineStorageService';
 import { v4 as uuidv4 } from 'uuid';
 import AreaSearchBar from '../components/AreaSearchBar';
 import { debounce } from 'lodash';
-
-const getDayName = () => {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const d = new Date();
-  return days[d.getDay()];
-};
-
-const getCurrentTime = () => {
-  const d = new Date();
-  const hours = d.getHours().toString().padStart(2, '0');
-  const minutes = d.getMinutes().toString().padStart(2, '0');
-  return `${hours}:${minutes}`;
-};
+import { fetchAreasForUser, getDayName, getCurrentTime } from '../services/AreaService';
 
 export default function UserExpensesScreen({ navigation, user, userProfile }) {
   // User Expenses State
@@ -65,86 +53,20 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
   const [loading, setLoading] = useState(false);
 
   const fetchAreas = useCallback(async () => {
-    // Fetch all areas initially, regardless of search text
-    if (allAreas.length === 0) {
-      setLoading(true);
-      const isConnected = await NetInfoService.isNetworkAvailable();
-      let fetchedAreas = [];
+    const userId = user?.id || userProfile?.id;
+    if (!userId && !userProfile && !user) return;
 
-      if (isConnected) {
-        try {
-          let areaList = [];
-          if (userProfile?.user_type?.toLowerCase() === 'superadmin' || userProfile?.user_type?.toLowerCase() === 'admin') {
-            const { data, error } = await supabase
-              .from('area_master')
-              .select('id, area_name, enable_day, day_of_week, start_time_filter, end_time_filter')
-              .order('area_name', { ascending: true });
-            if (error) {
-              Alert.alert('Error', 'Failed to load all areas for superadmin.');
-            } else {
-              areaList = data || [];
-            }
-          } else {
-            const currentDayName = getDayName();
-            const currentTime = getCurrentTime();
-
-            const { data: userGroupsData, error: userGroupsError } = await supabase
-              .from('user_groups')
-              .select('groups(group_areas(area_master(id, area_name, enable_day, day_of_week, start_time_filter, end_time_filter)))')
-              .eq('user_id', user?.id);
-
-            if (userGroupsError) {
-              Alert.alert('Error', 'Failed to load areas based on user groups.');
-            } else {
-              const areaIdSet = new Set();
-              const areas = userGroupsData
-                .flatMap(userGroup => userGroup.groups?.group_areas || [])
-                .map(groupArea => groupArea.area_master)
-                .filter(Boolean);
-
-              areas.forEach(area => {
-                if (area && !areaIdSet.has(area.id)) {
-                  if (user?.user_type === 'user') {
-                    const areaStartTime = area.start_time_filter ? area.start_time_filter.substring(0, 5) : '';
-                    const areaEndTime = area.end_time_filter ? area.end_time_filter.substring(0, 5) : '';
-
-                    const isTimeFiltered = (
-                      !area.enable_day ||
-                      (area.enable_day &&
-                      area.day_of_week === currentDayName &&
-                      (
-                        (areaStartTime === '00:00' && areaEndTime === '00:00') ||
-                        (areaStartTime <= areaEndTime && currentTime >= areaStartTime && currentTime <= areaEndTime) ||
-                        (areaStartTime > areaEndTime && (currentTime >= areaStartTime || currentTime <= areaEndTime))
-                      ))
-                    );
-
-                    if (isTimeFiltered) {
-                      areaIdSet.add(area.id);
-                      areaList.push(area);
-                    }
-                  } else {
-                    areaIdSet.add(area.id);
-                    areaList.push(area);
-                  }
-                }
-              });
-            }
-          }
-          fetchedAreas = areaList;
-          await OfflineStorageService.saveOfflineAreas(areaList);
-        } catch (error) {
-          Alert.alert('Error', 'Failed to load initial data online.');
-        }
-      } else {
-        fetchedAreas = await OfflineStorageService.getOfflineAreas();
-        Alert.alert('Offline Mode', 'Loading areas from offline storage.');
-      }
-
-      setAllAreas(fetchedAreas);
+    setLoading(true);
+    try {
+      const userType = userProfile?.user_type || user?.user_type;
+      const fetchedAreas = await fetchAreasForUser({ userId, userType });
+      setAllAreas(fetchedAreas || []);
+    } catch (error) {
+      console.error('Error fetching areas in UserExpensesScreen:', error);
+    } finally {
       setLoading(false);
     }
-  }, [user, allAreas.length, userProfile]); // Add allAreas.length to dependencies
+  }, [user?.id, userProfile]);
 
   useEffect(() => {
     const today = new Date();
@@ -488,10 +410,16 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
             <Text style={styles.sectionHeader}>Add New Expense</Text>
 
             <Text style={styles.inputLabel}>Area:</Text>
-            <View style={{flexDirection: 'row', alignItems: 'center', zIndex: 5000}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', zIndex: 999999, elevation: 999999, position: 'relative'}}>
               <AreaSearchBar
                 style={{ flex: 1 }}
                 areas={allAreas}
+                onChangeText={(text) => {
+                  setAreaSearchText(text);
+                  if (!text) {
+                    setSelectedAreaId(null);
+                  }
+                }}
                 onAreaSelect={(id, name) => {
                   setSelectedAreaId(id);
                   setAreaSearchText(name);
@@ -501,7 +429,7 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
             </View>
 
             <Text style={styles.inputLabel}>Expense Amount</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, zIndex: 1, elevation: 1, position: 'relative' }}>
               <TextInput
                 value={expenseAmount}
                 onChangeText={setExpenseAmount}

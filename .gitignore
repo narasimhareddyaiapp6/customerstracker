@@ -96,7 +96,7 @@ jspm_packages/
 # vuepress build output
 #vuepress/dist
 #.vuepress/dist
-/dist
+
 # Serverless directories
 .serverless
 

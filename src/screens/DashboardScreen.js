@@ -27,6 +27,7 @@ import CommunicationModal from '../components/CommunicationModal';
 import CustomerListItem from '../components/CustomerListItem';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { fetchAreasForUser } from '../services/AreaService';
 
 
 import { debounce } from 'lodash';
@@ -116,89 +117,30 @@ export default function DashboardScreen({ user, userProfile }) {
   };
 
   useEffect(() => {
-    if (!user?.id) return;
-    
     async function fetchAreas() {
-      let areaList = [];
-      let error = null;
-
-      if (userProfile?.user_type?.toLowerCase() === 'superadmin' || userProfile?.user_type?.toLowerCase() === 'admin') {
-        // Superadmin can view all areas
-        const { data, error: fetchError } = await supabase
-          .from('area_master')
-          .select('id, area_name')
-          .order('area_name', { ascending: true });
-        areaList = data || [];
-        error = fetchError;
-      } else {
-        // Regular users/admins view areas based on their groups
-        const currentDayName = getDayName();
-        const currentTime = getCurrentTime();
-
-        const { data, error: fetchError } = await supabase
-          .from('user_groups')
-          .select('groups(group_areas(area_master(id, area_name, enable_day, day_of_week, start_time_filter, end_time_filter)))') // Select new columns
-          .eq('user_id', user.id);
-
-        if (data) {
-          const areaIdSet = new Set();
-          data.forEach(userGroup => {
-            userGroup.groups?.group_areas?.forEach(groupArea => {
-              const area = groupArea.area_master;
-              if (area && !areaIdSet.has(area.id)) {
-                // Apply client-side filtering for 'user' type if conditions are met
-                if (userProfile?.user_type === 'user') {
-                  const areaStartTime = area.start_time_filter ? area.start_time_filter.substring(0, 5) : ''; // Assuming HH:MM:SS or HH:MM
-                  const areaEndTime = area.end_time_filter ? area.end_time_filter.substring(0, 5) : '';
-
-                  if (
-                    !area.enable_day || // If enable_day is false, always include
-                    (area.enable_day && // If enable_day is true, check other conditions
-                    area.day_of_week === currentDayName &&
-                    (
-                      (areaStartTime === '00:00' && areaEndTime === '00:00') || // Special case for 24 hours
-                      (areaStartTime <= areaEndTime && currentTime >= areaStartTime && currentTime <= areaEndTime) || // Case 1: Does not cross midnight
-                      (areaStartTime > areaEndTime && (currentTime >= areaStartTime || currentTime <= areaEndTime))   // Case 2: Crosses midnight
-                    ))
-                  ) {
-                    areaIdSet.add(area.id);
-                    areaList.push(area);
-                  }
-                } else {
-                  // For other user types, add without time filtering
-                  areaIdSet.add(area.id);
-                  areaList.push(area);
-                }
-              }
-            });
-          });
-        }
-        error = fetchError;
-      }
-
-        
-
-      if (error) {
+      try {
+        const userId = user?.id || userProfile?.id;
+        const userType = userProfile?.user_type || user?.user_type;
+        const areaList = await fetchAreasForUser({ userId, userType });
+        setGroupAreas(areaList || []);
+      } catch (error) {
         console.error("Error fetching areas:", error);
-        return;
       }
-      setGroupAreas(areaList);
     }
 
     fetchAreas();
-  }, [user, userProfile]); // Added userProfile to dependency array
+  }, [user?.id, userProfile]);
 
   useEffect(() => {
-    if (groupAreas.length > 0 && !selectedAreaId) {
-      setSelectedAreaId(groupAreas[0].id);
-      setSelectedAreaName(groupAreas[0].area_name);
-    }
-  }, [groupAreas]);
-
-  useEffect(() => {
-    if (groupAreas.length > 0 && !selectedAreaId) {
-      setSelectedAreaId(groupAreas[0].id);
-      setSelectedAreaName(groupAreas[0].area_name);
+    if (groupAreas.length > 0) {
+      const currentAreaStillValid = groupAreas.some(a => a.id === selectedAreaId);
+      if (!selectedAreaId || !currentAreaStillValid) {
+        setSelectedAreaId(groupAreas[0].id);
+        setSelectedAreaName(groupAreas[0].area_name);
+      }
+    } else {
+      setSelectedAreaId(null);
+      setSelectedAreaName('');
     }
   }, [groupAreas]);
 
@@ -513,10 +455,16 @@ export default function DashboardScreen({ user, userProfile }) {
       <FlatList
         data={displayedCustomerList}
         ListHeaderComponent={
-          <View>
+          <View style={{ zIndex: 99999, elevation: 99999, position: 'relative' }}>
             <View style={styles.searchContainer}>
               <AreaSearchBar
                 areas={groupAreas}
+                onChangeText={(text) => {
+                  if (!text) {
+                    setSelectedAreaId(null);
+                    setSelectedAreaName('');
+                  }
+                }}
                 onAreaSelect={(id, name) => {
                   setSelectedAreaId(id);
                   setSelectedAreaName(name);
@@ -771,7 +719,9 @@ const styles = StyleSheet.create({
     margin: 16,
     marginBottom: 0,
     borderRadius: 12,
-    zIndex: 5000,
+    zIndex: 99999,
+    elevation: 99999,
+    position: 'relative',
   },
   customerSearchInput: {
     borderWidth: 1,
@@ -790,6 +740,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    zIndex: 1,
   },
   cardTitle: {
     fontSize: 18,

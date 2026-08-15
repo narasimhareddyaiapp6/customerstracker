@@ -40,7 +40,7 @@ const DashboardListHeader = ({
   const navigation = useNavigation();
 
   return (
-    <View>
+    <View style={{ zIndex: 99999, elevation: 99999, position: 'relative' }}>
       <View style={styles.searchContainer}>
         <AreaSearchBar
           areas={groupAreas}
@@ -168,6 +168,9 @@ const styles = StyleSheet.create({
     margin: 16,
     marginBottom: 0,
     borderRadius: 12,
+    zIndex: 99999,
+    elevation: 99999,
+    position: 'relative',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -179,6 +182,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    zIndex: 1,
   },
   cardTitle: {
     fontSize: 18,
