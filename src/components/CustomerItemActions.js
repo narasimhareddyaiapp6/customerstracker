@@ -35,6 +35,7 @@ const CustomerItemActions = ({
   openTransactionModal,
   handleCloneCustomer,
   handleChangeStatus,
+  openCustomerMap,
 }) => {
   const [showActions, setShowActions] = useState(false);
 
@@ -119,12 +120,26 @@ const CustomerItemActions = ({
         <MaterialIcons name="receipt" size={24} color="#4CAF50" />
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={styles.iconButton}
+        onPress={() => openCustomerMap && openCustomerMap(item)}
+      >
+        <MaterialIcons
+          name={item.latitude && item.longitude ? "location-on" : "add-location"}
+          size={24}
+          color={item.latitude && item.longitude ? "#FF9800" : "#9E9E9E"}
+        />
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.iconButton} onPress={() => setShowActions(!showActions)}>
         <MaterialIcons name="more-vert" size={24} color="#666" />
       </TouchableOpacity>
 
       {showActions && (
         <View style={styles.actionsMenu}>
+          <TouchableOpacity style={styles.actionMenuItem} onPress={() => { setShowActions(false); openCustomerMap && openCustomerMap(item); }}>
+            <MaterialIcons name="map" size={24} color="#FF9800" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.actionMenuItem} onPress={() => { setShowActions(false); handleChangeStatus(item); }} disabled={item.status === 'Closed'}>
             <MaterialIcons name="swap-horiz" size={24} color="#FFC107" style={item.status === 'Closed' ? { opacity: 0.5 } : {}} />
           </TouchableOpacity>

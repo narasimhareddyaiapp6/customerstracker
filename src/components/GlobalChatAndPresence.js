@@ -4,6 +4,7 @@ import { supabase, supabaseUrl } from '../services/supabaseClient'; // Import su
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import * as tus from 'tus-js-client';
+import { ensureBucketExists } from '../services/StorageService';
 
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -157,7 +158,7 @@ const GlobalChatAndPresence = ({ user, userProfile, selectedGroup, setSelectedGr
       const response = await fetch(file.uri);
       const blob = await response.blob();
 
-      console.log("Starting TUS upload with token:", accessToken); // DIAGNOSTIC LOG
+      await ensureBucketExists('chat_media');
 
       const upload = new tus.Upload(blob, {
         endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,

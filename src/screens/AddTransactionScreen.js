@@ -3,11 +3,13 @@ import { View, Text, TextInput, Button, Alert, TouchableOpacity, ScrollView, Pla
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../services/supabase';
+import { MaterialIcons } from '@expo/vector-icons';
 import styles from './CustomerStyles';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { fetchAreasForUser } from '../services/AreaService';
+import { uploadImageToStorage } from '../services/StorageService';
 
 export default function AddTransactionScreen({ user, userProfile, navigation }) {
   const [areas, setAreas] = useState([]);
@@ -29,12 +31,15 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
         const userType = userProfile?.user_type || user?.user_type;
         const fetchedAreas = await fetchAreasForUser({ userId, userType });
         setAreas(fetchedAreas || []);
+        if (fetchedAreas && fetchedAreas.length > 0) {
+          setSelectedArea(fetchedAreas[0].id);
+        }
       } catch (error) {
         console.error('Error fetching areas in AddTransactionScreen:', error);
       }
     }
     fetchAreas();
-  }, [user?.id, userProfile]);
+  }, [user, userProfile]);
 
   useEffect(() => {
     async function fetchCustomers() {
@@ -42,55 +47,66 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
         setCustomers([]);
         return;
       }
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, name, book_no')
-        .eq('area_id', selectedArea);
-      if (error) {
-        console.error('Error fetching customers:', error);
-      } else {
-        setCustomers(data);
+      try {
+        const { data, error } = await supabase
+          .from('customers')
+          .select('id, name, book_no, mobile')
+          .eq('area_id', selectedArea)
+          .order('name');
+        if (error) {
+          console.error('Error fetching customers:', error);
+          setCustomers([]);
+        } else {
+          setCustomers(data || []);
+          if (data && data.length > 0) {
+            setSelectedCustomer(data[0].id);
+          } else {
+            setSelectedCustomer('');
+          }
+        }
+      } catch (error) {
+        console.error('Error in fetchCustomers:', error);
+        setCustomers([]);
       }
     }
     fetchCustomers();
   }, [selectedArea]);
 
-  const handleImagePick = async () => {
+  const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
+      Alert.alert('Permission needed', 'Permission to access media library is required to upload screenshots.');
       return;
     }
-    let result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
+      quality: 0.7,
     });
     if (!result.canceled) {
       setUpiScreenshot(result.assets[0]);
     }
   };
 
-  const uploadTransactionImage = async (uri, customerId, mimeType) => {
+  const uploadTransactionImage = async (uri, customerId, mimeType = 'image/jpeg') => {
     try {
-      const fileExt = mimeType.split('/')[1];
+      const fileExt = (mimeType && mimeType.includes('/')) ? mimeType.split('/')[1] : 'jpg';
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 100000)}.${fileExt}`;
       const filePath = `transactions/${customerId}/${fileName}`;
-      const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const fileBuffer = Buffer.from(fileData, 'base64');
-      const { data, error } = await supabase.storage
-        .from('customerstracker')
-        .upload(filePath, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-      if (error) {
-        Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);
+
+      const { publicUrl, error: uploadError } = await uploadImageToStorage({
+        uri,
+        filePath,
+        bucketName: 'customerstracker',
+        mimeType: mimeType || 'image/jpeg',
+      });
+
+      if (uploadError || !publicUrl) {
+        Alert.alert('Error', 'Failed to upload UPI image: ' + (uploadError?.message || 'Unknown error'));
         return null;
       }
-      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
-      return urlData?.publicUrl;
+
+      return publicUrl;
     } catch (error) {
       Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);
       return null;
@@ -197,9 +213,28 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
       </Picker>
 
       {amountType === 'UPI' && (
-        <View>
-          <Button title="Upload UPI Screenshot" onPress={handleImagePick} />
-          {upiScreenshot && <Image source={{ uri: upiScreenshot.uri }} style={{ width: 100, height: 100, marginVertical: 10 }} />}
+        <View style={{ marginVertical: 10 }}>
+          <Button title={upiScreenshot ? "Change UPI Screenshot" : "Upload UPI Screenshot"} onPress={handlePickImage} />
+          {upiScreenshot && (
+            <View style={{ alignItems: 'center', marginTop: 10 }}>
+              <Image source={{ uri: upiScreenshot.uri }} style={{ width: 120, height: 120, borderRadius: 6, borderWidth: 1, borderColor: '#007AFF' }} />
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#FF3B30',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  marginTop: 8,
+                }}
+                onPress={() => setUpiScreenshot(null)}
+              >
+                <MaterialIcons name="delete" size={16} color="#FFF" style={{ marginRight: 4 }} />
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Remove Screenshot</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
 

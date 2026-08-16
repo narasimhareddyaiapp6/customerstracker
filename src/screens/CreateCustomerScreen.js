@@ -18,8 +18,10 @@ import EnhancedDatePicker from '../components/EnhancedDatePicker';
 import { MaterialIcons } from '@expo/vector-icons';
 import AreaSearchBar from '../components/AreaSearchBar';
 import CustomerItemActions from '../components/CustomerItemActions';
+import CustomerMapModal from '../components/CustomerMapModal';
 import CalculatorModal from '../components/CalculatorModal';
 import { fetchAreasForUser } from '../services/AreaService';
+import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
 
 const getDayName = () => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -33,6 +35,19 @@ const getCurrentTime = () => {
   const minutes = d.getMinutes().toString().padStart(2, '0');
   return `${hours}:${minutes}`;
 };
+
+const DEFAULT_CUSTOMER_TYPES = [
+  { id: 'regular', status_name: 'Regular' },
+  { id: 'daily', status_name: 'Daily' },
+  { id: 'weekly', status_name: 'Weekly' },
+  { id: 'monthly', status_name: 'Monthly' },
+  { id: 'business', status_name: 'Business' },
+  { id: 'individual', status_name: 'Individual' },
+  { id: 'retail', status_name: 'Retail' },
+  { id: 'wholesale', status_name: 'Wholesale' },
+  { id: 'vip', status_name: 'VIP' },
+  { id: 'new', status_name: 'New' },
+];
 
 export default function CreateCustomerScreen({ user, userProfile, route = {} }) {
   const navigation = useNavigation();
@@ -72,6 +87,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   const [customerDocs, setCustomerDocs] = useState([]);
   const [showDocModal, setShowDocModal] = useState(false);
   const [docModalUri, setDocModalUri] = useState('');
+  const [activeDocModalItem, setActiveDocModalItem] = useState(null);
   const [showCustomerFormModal, setShowCustomerFormModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,7 +97,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [missingFields, setMissingFields] = useState([]);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
-  const [masterCustomerTypes, setMasterCustomerTypes] = useState([]);
+  const [masterCustomerTypes, setMasterCustomerTypes] = useState(DEFAULT_CUSTOMER_TYPES);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusChangeRemarks, setStatusChangeRemarks] = useState('');
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
@@ -105,6 +121,10 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   const [mapRegion, setMapRegion] = useState(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [currentRegion, setCurrentRegion] = useState(null);
+  const [showCustomerMapModal, setShowCustomerMapModal] = useState(false);
+  const [mapFocusedCustomer, setMapFocusedCustomer] = useState(null);
+  const [mapInitialMode, setMapInitialMode] = useState('view');
+  const [fetchingGps, setFetchingGps] = useState(false);
 
   // -- Helper Constants --
   const isMissing = field => missingFields.includes(field);
@@ -272,6 +292,41 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       }
     }
     fetchPlans();
+  }, []);
+
+  // Fetch customer types from DB or use standard defaults
+  useEffect(() => {
+    async function fetchCustomerTypes() {
+      try {
+        const { data, error } = await supabase
+          .from('master_customer_types')
+          .select('*')
+          .order('status_name', { ascending: true });
+        if (!error && data && data.length > 0) {
+          setMasterCustomerTypes(data);
+          return;
+        }
+      } catch (err) {
+        // Fallback to default
+      }
+      try {
+        const { data, error } = await supabase
+          .from('customer_types')
+          .select('*')
+          .order('status_name', { ascending: true });
+        if (!error && data && data.length > 0) {
+          setMasterCustomerTypes(data.map(d => ({
+            id: d.id || d.name || d.type || d.status_name,
+            status_name: d.status_name || d.name || d.type || d.customer_type
+          })));
+          return;
+        }
+      } catch (err) {
+        // Fallback to default
+      }
+      setMasterCustomerTypes(DEFAULT_CUSTOMER_TYPES);
+    }
+    fetchCustomerTypes();
   }, []);
 
   useEffect(() => {
@@ -846,6 +901,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
           setShowCustomerFormModal={setShowCustomerFormModal}
           openTransactionModal={openTransactionModal}
           openLocationPicker={openLocationPicker}
+          openCustomerMap={openCustomerMap}
           handleCloneCustomer={handleCloneCustomer}
           handleChangeStatus={handleChangeStatus}
         />
@@ -906,25 +962,24 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     Alert.alert('Upload', 'Upload logic to be implemented');
   };
 
+  const openImageModal = (uri, docOrTransaction = null, type = 'customerDoc') => {
+    setDocModalUri(uri);
+    setActiveDocModalItem(docOrTransaction ? { type, item: docOrTransaction } : null);
+    setShowDocModal(true);
+  };
+
   const handleViewCustomerDocs = async (customer) => {
     setSelectedCustomer(customer);
     await fetchCustomerDocs(customer.id);
-    setShowDocModal(true);
+    setShowCustomerModal(true);
   };
 
   // 1. Add upload menu function:
   const handleUploadMenu = () => {
     const currentImages = customerDocs.filter(isImage);
-    const remainingSlots = 2 - currentImages.length;
-    
-    if (remainingSlots <= 0) {
-      Alert.alert('Upload Limit Reached', 'Maximum 2 images allowed per customer. Please delete some images first.');
-      return;
-    }
-    
     Alert.alert(
-      `Upload Image (${currentImages.length}/2)`,
-      `You can upload ${remainingSlots} more image${remainingSlots > 1 ? 's' : ''}`,
+      `Upload Image (${currentImages.length} uploaded)`,
+      'Choose an option to upload customer photo:',
       [
         { text: 'Take Photo', onPress: handleTakePhoto },
         { text: 'Pick from Gallery', onPress: handlePickImages },
@@ -935,12 +990,6 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   // 2. Take Photo (single, compressed):
   const handleTakePhoto = async () => {
     try {
-      const currentImages = customerDocs.filter(isImage);
-      if (currentImages.length >= 2) {
-        Alert.alert('Upload Limit', 'Maximum 2 images allowed per customer. Please delete some images first.');
-        return;
-      }
-
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission needed', 'Camera permission is required to take photos.');
@@ -965,35 +1014,20 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   // 3. Pick from Gallery (multiple, compressed):
   const handlePickImages = async () => {
     try {
-      const currentImages = customerDocs.filter(isImage);
-      if (currentImages.length >= 2) {
-        Alert.alert('Upload Limit', 'Maximum 2 images allowed per customer. Please delete some images first.');
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.3,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const remainingSlots = 2 - currentImages.length;
-        const imagesToUpload = result.assets.slice(0, remainingSlots);
-        
-        // Use Promise.all to upload all selected images
+        // Upload all selected images without limit
         await Promise.all(
-          imagesToUpload.map(asset => 
+          result.assets.map(asset => 
             uploadFile(asset.uri, 'image', asset.mimeType || 'image/jpeg')
           )
         );
 
-        if (imagesToUpload.length > 0) {
-          Alert.alert('Success', `${imagesToUpload.length} image(s) uploaded successfully!`);
-        }
-        
-        if (result.assets.length > remainingSlots) {
-          Alert.alert('Upload Limit', `You can only upload a maximum of 2 images. ${remainingSlots > 0 ? `${remainingSlots} slot(s) were available.` : ''}`);
-        }
+        Alert.alert('Success', `${result.assets.length} image(s) uploaded successfully!`);
       } else {
         console.warn('Gallery result:', result);
       }
@@ -1003,45 +1037,38 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     }
   };
 
-  // Replace uploadFile with Supabase Storage upload
-  const uploadFile = async (uri, fileType, mimeType) => {
+  // Upload customer document with auto-bucket creation and base64 fallback
+  const uploadFile = async (uri, fileType, mimeType = 'image/jpeg') => {
     try {
       if (!selectedCustomer?.id) {
         Alert.alert('Error', 'No customer selected');
         return;
       }
-      // Debug log for user id
       console.log('Uploading customer document. user_id:', user?.id, 'customer_id:', selectedCustomer.id);
-      // Generate a unique file name using timestamp and random number
-      const fileExt = mimeType.split('/')[1];
+      const fileExt = (mimeType && mimeType.includes('/')) ? mimeType.split('/')[1] : 'jpg';
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 100000)}.${fileExt}`;
       const filePath = `customers/${selectedCustomer.id}/${fileName}`;
-      // Read file as binary
-      const fileDataBuffer = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const fileBuffer = Buffer.from(fileDataBuffer, 'base64');
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('customerstracker')
-        .upload(filePath, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-      if (error) {
-        console.error('Supabase Storage upload error:', error);
-        Alert.alert('Error', 'Failed to upload file: ' + error.message);
+
+      const { publicUrl, error: uploadError } = await uploadImageToStorage({
+        uri,
+        filePath,
+        bucketName: 'customerstracker',
+        mimeType: mimeType || 'image/jpeg',
+      });
+
+      if (uploadError || !publicUrl) {
+        console.error('Image upload error:', uploadError);
+        Alert.alert('Error', 'Failed to upload file: ' + (uploadError?.message || 'Unknown error'));
         return;
       }
-      console.log('Customer image uploaded. File path:', filePath);
-      // Get the public URL
-      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
-      const publicUrl = urlData?.publicUrl;
-      console.log('Generated Supabase customer image URL:', publicUrl);
+
+      console.log('Customer image ready. Public URL / Data length:', publicUrl?.length);
 
       // Store file path and URL in customer_documents table
       const { error: insertError } = await supabase.from('customer_documents').insert({
         customer_id: selectedCustomer.id,
         file_name: fileName,
-        file_data: publicUrl, // Save the public URL in file_data
+        file_data: publicUrl, // Save public URL (or fallback data URI)
       });
 
       if (insertError) {
@@ -1055,6 +1082,66 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       console.error('Error in uploadFile:', error);
       Alert.alert('Error', 'Failed to upload file: ' + error.message);
     }
+  };
+
+  // Delete customer photo from storage and database
+  const handleDeleteCustomerDoc = (doc) => {
+    if (!doc) return;
+    Alert.alert('Delete Image', 'Are you sure you want to delete this photo?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteImageFromStorage(doc.file_data, 'customerstracker');
+            await supabase.from('customer_documents').delete().eq('id', doc.id);
+            if (selectedCustomer?.id) {
+              await fetchCustomerDocs(selectedCustomer.id);
+            }
+            if (docModalUri === doc.file_data) {
+              setShowDocModal(false);
+              setDocModalUri(null);
+              setActiveDocModalItem(null);
+            }
+            Alert.alert('Success', 'Image deleted successfully.');
+          } catch (err) {
+            console.error('Error deleting customer photo:', err);
+            Alert.alert('Error', 'Failed to delete photo: ' + err.message);
+          }
+        },
+      },
+    ]);
+  };
+
+  // Delete transaction UPI image
+  const handleDeleteTransactionImage = async (transaction) => {
+    if (!transaction?.id || !transaction?.upi_image) return;
+    Alert.alert('Delete Receipt', 'Are you sure you want to delete this UPI receipt image?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteImageFromStorage(transaction.upi_image, 'customerstracker');
+            await supabase.from('transactions').update({ upi_image: null }).eq('id', transaction.id);
+            if (transactionCustomer?.id) {
+              await fetchTransactions(transactionCustomer.id);
+            }
+            if (docModalUri === transaction.upi_image) {
+              setShowDocModal(false);
+              setDocModalUri(null);
+              setActiveDocModalItem(null);
+            }
+            Alert.alert('Success', 'Receipt image deleted.');
+          } catch (err) {
+            console.error('Error deleting transaction image:', err);
+            Alert.alert('Error', 'Failed to delete receipt: ' + err.message);
+          }
+        },
+      },
+    ]);
   };
 
   // This useEffect and the customerImageUrls state are no longer needed
@@ -1076,6 +1163,71 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     return () => { isMounted = false; };
   }, [customerDocs, showCustomerFormModal, isEditMode]);
   */
+
+  // Customer map functions
+  const openCustomerMap = (customer = null, mode = 'view') => {
+    setMapFocusedCustomer(customer);
+    setMapInitialMode(mode);
+    setShowCustomerMapModal(true);
+  };
+
+  const handleUpdateCustomerLocation = async (customerId, lat, lng) => {
+    // Update local state so form reflects it immediately
+    const parsedLat = typeof lat === 'number' ? lat : parseFloat(lat);
+    const parsedLng = typeof lng === 'number' ? lng : parseFloat(lng);
+    setLatitude(parsedLat);
+    setLongitude(parsedLng);
+
+    if (customerId) {
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .update({
+            latitude: parsedLat,
+            longitude: parsedLng,
+          })
+          .eq('id', customerId);
+
+        if (error) {
+          Alert.alert('Error', 'Failed to update location: ' + error.message);
+        } else {
+          Alert.alert('Success', 'Customer location updated successfully!');
+          fetchCustomers();
+        }
+      } catch (error) {
+        console.error('Error updating customer location:', error);
+        Alert.alert('Error', 'Failed to update customer location');
+      }
+    }
+  };
+
+  const fetchCurrentGpsForForm = async () => {
+    try {
+      setFetchingGps(true);
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to capture current GPS coordinates.');
+        setFetchingGps(false);
+        return;
+      }
+      let loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      if (loc && loc.coords) {
+        setLatitude(loc.coords.latitude);
+        setLongitude(loc.coords.longitude);
+        Alert.alert(
+          'Location Captured',
+          `GPS location captured successfully:\nLat: ${loc.coords.latitude.toFixed(6)}\nLng: ${loc.coords.longitude.toFixed(6)}`
+        );
+      }
+    } catch (err) {
+      console.error('Error fetching GPS for form:', err);
+      Alert.alert('Error', 'Failed to get current GPS location: ' + (err.message || err));
+    } finally {
+      setFetchingGps(false);
+    }
+  };
 
   // Location picker functions
   const openLocationPicker = (customer) => {
@@ -1156,27 +1308,26 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
   };
 
   // Add this helper for transaction UPI image upload
-  const uploadTransactionImage = async (uri, transactionId, mimeType) => {
+  const uploadTransactionImage = async (uri, transactionId, mimeType = 'image/jpeg') => {
     try {
-      const fileExt = mimeType.split('/')[1];
+      const fileExt = (mimeType && mimeType.includes('/')) ? mimeType.split('/')[1] : 'jpg';
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 100000)}.${fileExt}`;
       const filePath = `transactions/${transactionId}/${fileName}`;
-      const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const fileBuffer = Buffer.from(fileData, 'base64');
-      const { data, error } = await supabase.storage
-        .from('customerstracker')
-        .upload(filePath, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-      if (error) {
-        Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);
+
+      const { publicUrl, error: uploadError } = await uploadImageToStorage({
+        uri,
+        filePath,
+        bucketName: 'customerstracker',
+        mimeType: mimeType || 'image/jpeg',
+      });
+
+      if (uploadError || !publicUrl) {
+        Alert.alert('Error', 'Failed to upload UPI image: ' + (uploadError?.message || 'Unknown error'));
         return null;
       }
-      console.log('Transaction image uploaded. File path:', filePath);
-      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
-      console.log('Generated Supabase transaction image URL:', urlData?.publicUrl);
-      return urlData?.publicUrl; // Return the full URL
+
+      console.log('Transaction image ready:', publicUrl?.substring(0, 50));
+      return publicUrl; // Return the full URL or data URI
     } catch (error) {
       Alert.alert('Error', 'Failed to upload UPI image: ' + error.message);
       return null;
@@ -1636,8 +1787,8 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       book_no: bookNo,
       customer_type: customerType,
       area_id: areaId,
-      latitude,
-      longitude,
+      latitude: (latitude !== null && latitude !== undefined && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? parseFloat(latitude) : null,
+      longitude: (longitude !== null && longitude !== undefined && !isNaN(parseFloat(longitude)) && parseFloat(longitude) !== 0) ? parseFloat(longitude) : null,
       remarks,
       landmark,
       address,
@@ -1725,21 +1876,85 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
 
   return (
     <View style={styles.container}>
-      <View style={[styles.searchContainer, { zIndex: 999999, elevation: 999999, position: 'relative' }]}>
-        <AreaSearchBar
-          areas={areas}
-          onChangeText={(text) => {
-            if (!text) {
-              setAreaId(null);
-              setSelectedAreaName('');
-            }
-          }}
-          onAreaSelect={(id, name) => {
-            setAreaId(id);
-            setSelectedAreaName(name);
-          }}
-          selectedAreaName={selectedAreaName}
-        />
+      {/* Top Area Selection Chips */}
+      <View style={styles.areaSelectorContainer}>
+        <View style={styles.areaSelectorHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+            <MaterialIcons name="location-on" size={18} color="#007AFF" />
+            <Text style={styles.areaSelectorTitle}>Select Area:</Text>
+            {selectedAreaName ? (
+              <Text style={{ fontSize: 13, color: '#007AFF', fontWeight: '700', marginLeft: 6 }} numberOfLines={1}>
+                📍 {selectedAreaName}
+              </Text>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#007AFF',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 8,
+              shadowColor: '#007AFF',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.25,
+              shadowRadius: 3,
+              elevation: 3,
+            }}
+            onPress={() => openCustomerMap(null)}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="map" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 }}>View on Map</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          horizontal={true}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.areaChipsScrollView}
+          keyboardShouldPersistTaps="handled"
+        >
+          {areas && areas.length > 0 ? (
+            areas.map((area) => {
+              const isSelected = area.id === areaId;
+              const areaLabel = area.area_name || area.name || 'Unnamed Area';
+              return (
+                <TouchableOpacity
+                  key={area.id}
+                  style={[
+                    styles.areaChip,
+                    isSelected && styles.areaChipSelected,
+                  ]}
+                  onPress={() => {
+                    setAreaId(area.id);
+                    setSelectedAreaName(areaLabel);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name={isSelected ? 'check-circle' : 'location-on'}
+                    size={16}
+                    color={isSelected ? '#FFFFFF' : '#007AFF'}
+                  />
+                  <Text
+                    style={[
+                      styles.areaChipText,
+                      isSelected && styles.areaChipTextSelected,
+                    ]}
+                  >
+                    {areaLabel}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <Text style={{ color: '#8E8E93', fontSize: 13, fontStyle: 'italic', paddingVertical: 4 }}>
+              Loading areas...
+            </Text>
+          )}
+        </ScrollView>
       </View>
 
       <TextInput
@@ -1747,9 +1962,9 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         onChangeText={setSearch}
         placeholder="Search by Card No, Name, Mobile, Email..."
         placeholderTextColor="#8E8E93"
-        style={[styles.searchInput, { zIndex: 1, elevation: 1, position: 'relative' }]}
+        style={styles.searchInput}
       />
-      <View style={{ flexDirection: 'row', backgroundColor: '#E3E6F0', borderTopLeftRadius: 8, borderTopRightRadius: 8, paddingVertical: 8, zIndex: 1, elevation: 1, position: 'relative' }}>
+      <View style={{ flexDirection: 'row', backgroundColor: '#E3E6F0', borderTopLeftRadius: 8, borderTopRightRadius: 8, paddingVertical: 8 }}>
         <Text style={[styles.headerCell, { flex: 1.5 }]}>Card No</Text>
         <Text style={[styles.headerCell, { flex: 2 }]}>Name</Text>
         <Text style={[styles.headerCell, { flex: 2 }]}>Mobile</Text>
@@ -1759,12 +1974,12 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         data={filteredCustomers}
         renderItem={renderCustomerItem}
         keyExtractor={item => item.id.toString()}
-        style={[styles.customerList, { zIndex: 1, elevation: 1 }]}
+        style={styles.customerList}
         ListEmptyComponent={
           <View style={{ padding: 28, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={[styles.emptyListText, { fontSize: 16, color: '#555', textAlign: 'center' }]}>
               {!areaId
-                ? '📍 Please select an area from the search bar above to view customers.'
+                ? '📍 Please select an area above to view customers.'
                 : 'No customers found in this area.'}
             </Text>
           </View>
@@ -1789,7 +2004,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                 <>
                   <TouchableOpacity style={styles.uploadButton} onPress={handleUploadMenu}>
                     <Text style={styles.uploadButtonText}>
-                      Upload Photo(s) ({customerDocs.filter(isImage).length}/2)
+                      Upload Photo(s) ({customerDocs.filter(isImage).length})
                     </Text>
                   </TouchableOpacity>
                   {loadingImages ? (
@@ -1797,25 +2012,44 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                   ) : (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginVertical: 8 }}>
                       {customerDocs.filter(isImage).map(doc => (
-                        <TouchableOpacity key={doc.id} style={{ marginRight: 8, marginBottom: 8 }} onPress={() => { setDocModalUri(doc.file_data); setShowDocModal(true); }}>
-                          {doc.file_data ? (
-                            <Image
-                              source={{ uri: doc.file_data }}
-                              style={{
-                                width: 50,
-                                height: 50,
-                                borderRadius: 0,
-                                borderWidth: 1,
-                                borderColor: '#ddd'
-                              }}
-                              onError={e => console.error('Thumbnail image load error:', { url: doc.file_data, error: e.nativeEvent })}
-                            />
-                          ) : (
-                            <View style={{ width: 50, height: 50, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' }}>
-                              <Text style={{ color: '#aaa', fontSize: 10 }}>No Image</Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
+                        <View key={doc.id} style={{ marginRight: 10, marginBottom: 10, position: 'relative' }}>
+                          <TouchableOpacity onPress={() => openImageModal(doc.file_data, doc, 'customerDoc')}>
+                            {doc.file_data ? (
+                              <Image
+                                source={{ uri: doc.file_data }}
+                                style={{
+                                  width: 60,
+                                  height: 60,
+                                  borderRadius: 6,
+                                  borderWidth: 1,
+                                  borderColor: '#ddd'
+                                }}
+                                onError={e => console.error('Thumbnail image load error:', { url: doc.file_data, error: e.nativeEvent })}
+                              />
+                            ) : (
+                              <View style={{ width: 60, height: 60, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', borderRadius: 6 }}>
+                                <Text style={{ color: '#aaa', fontSize: 10 }}>No Image</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={{
+                              position: 'absolute',
+                              top: -6,
+                              right: -6,
+                              backgroundColor: '#FF3B30',
+                              borderRadius: 12,
+                              width: 22,
+                              height: 22,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              elevation: 4,
+                            }}
+                            onPress={() => handleDeleteCustomerDoc(doc)}
+                          >
+                            <MaterialIcons name="close" size={14} color="#FFF" />
+                          </TouchableOpacity>
+                        </View>
                       ))}
                     </View>
                   )}
@@ -1831,7 +2065,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
               <Text style={styles.formLabel}>Card No</Text>
               <TextInput value={bookNo} onChangeText={setBookNo} style={styles.input} />
               <Text style={styles.formLabel}>Customer Type</Text>
-              <Picker selectedValue={customerType} onValueChange={setCustomerType} style={styles.formPicker}>
+              <Picker selectedValue={customerType} onValueChange={setCustomerType} style={[styles.formPicker, isMissing('customerType') && { borderColor: 'red', borderWidth: 2 }]}>
                 <Picker.Item label="Select Type" value="" />
                 {masterCustomerTypes.map(type => <Picker.Item key={type.id} label={type.status_name} value={type.status_name} />)}
               </Picker>
@@ -1926,6 +2160,122 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                 repaymentFrequency={repaymentFrequency}
                 daysToComplete={daysToComplete}
               />
+
+              <Text style={styles.sectionHeader}>Location (GPS & Map)</Text>
+
+              {/* Location Card */}
+              <View style={{
+                backgroundColor: (latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? '#E8F5E9' : '#FFF9C4',
+                borderColor: (latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? '#4CAF50' : '#FFC107',
+                borderWidth: 1.5,
+                borderRadius: 10,
+                padding: 12,
+                marginBottom: 12,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+                    <MaterialIcons 
+                      name={(latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? "location-on" : "location-off"} 
+                      size={22} 
+                      color={(latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? "#2E7D32" : "#E65100"} 
+                      style={{ marginRight: 6 }} 
+                    />
+                    <Text style={{ 
+                      fontWeight: 'bold', 
+                      fontSize: 14, 
+                      color: (latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? '#1B5E20' : '#E65100' 
+                    }}>
+                      {(latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) 
+                        ? 'GPS Location Assigned' 
+                        : 'No GPS Location Set'}
+                    </Text>
+                  </View>
+                  {(latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? (
+                    <TouchableOpacity 
+                      onPress={() => { setLatitude(null); setLongitude(null); }} 
+                      style={{ backgroundColor: '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                    >
+                      <Text style={{ color: '#D32F2F', fontSize: 12, fontWeight: 'bold' }}>Clear</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {(latitude != null && longitude != null && !isNaN(parseFloat(latitude)) && parseFloat(latitude) !== 0) ? (
+                  <View style={{ backgroundColor: '#FFFFFF', padding: 8, borderRadius: 6, marginBottom: 8, borderWidth: 1, borderColor: '#C8E6C9' }}>
+                    <Text style={{ fontSize: 12, color: '#2E7D32', fontWeight: '600' }}>
+                      🌐 Lat: <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#1B5E20' }}>{parseFloat(latitude).toFixed(6)}</Text>  |  Lng: <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#1B5E20' }}>{parseFloat(longitude).toFixed(6)}</Text>
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                    Capture live device GPS or tap on map to set/update customer coordinates.
+                  </Text>
+                )}
+                
+                {/* Action Buttons */}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#2E7D32',
+                      paddingVertical: 10,
+                      paddingHorizontal: 8,
+                      borderRadius: 8,
+                      shadowColor: '#2E7D32',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    }}
+                    onPress={fetchCurrentGpsForForm}
+                    disabled={fetchingGps || isReadOnly}
+                  >
+                    {fetchingGps ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="my-location" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Current GPS</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#007AFF',
+                      paddingVertical: 10,
+                      paddingHorizontal: 8,
+                      borderRadius: 8,
+                      shadowColor: '#007AFF',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    }}
+                    onPress={() => {
+                      openCustomerMap({
+                        id: selectedCustomer?.id || null,
+                        name: name || 'Customer',
+                        latitude: latitude || null,
+                        longitude: longitude || null,
+                        book_no: bookNo || '',
+                        mobile: mobile || '',
+                      }, 'pick');
+                    }}
+                    disabled={isReadOnly}
+                  >
+                    <MaterialIcons name="map" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Pick on Map</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
               <Text style={styles.sectionHeader}>Other</Text>
         <Text style={styles.formLabel}>Area *</Text>
@@ -2054,20 +2404,44 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                 </TouchableOpacity>
                 <Text style={styles.modalTitle}>Documents</Text>
                 {customerDocs.filter(isImage).length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8, paddingVertical: 4 }}>
                     {customerDocs.filter(isImage).map(doc => (
-                      <TouchableOpacity key={doc.id} onPress={() => { setDocModalUri(doc.file_data); setShowDocModal(true); }}>
-                        <Image source={{ uri: doc.file_data }} style={{ width: 60, height: 60, borderRadius: 0, marginRight: 8, borderWidth: 1, borderColor: '#ccc' }} />
-                      </TouchableOpacity>
+                      <View key={doc.id} style={{ marginRight: 12, position: 'relative' }}>
+                        <TouchableOpacity onPress={() => openImageModal(doc.file_data, doc, 'customerDoc')}>
+                          <Image source={{ uri: doc.file_data }} style={{ width: 64, height: 64, borderRadius: 6, borderWidth: 1, borderColor: '#ccc' }} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            position: 'absolute',
+                            top: -6,
+                            right: -6,
+                            backgroundColor: '#FF3B30',
+                            borderRadius: 12,
+                            width: 22,
+                            height: 22,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            elevation: 4,
+                          }}
+                          onPress={() => handleDeleteCustomerDoc(doc)}
+                        >
+                          <MaterialIcons name="close" size={14} color="#FFF" />
+                        </TouchableOpacity>
+                      </View>
                     ))}
                   </ScrollView>
                 )}
                 {customerDocs.filter(doc => !isImage(doc)).map(doc => (
-                  <View key={doc.id} style={styles.documentItem}>
-                    <TouchableOpacity onPress={() => Linking.openURL(doc.file_data || '')}>
+                  <View key={doc.id} style={[styles.documentItem, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                    <TouchableOpacity onPress={() => Linking.openURL(doc.file_data || '')} style={{ flex: 1 }}>
                       <Text style={styles.documentLink}>{doc.file_name} [Download]</Text>
                     </TouchableOpacity>
-                    <Text style={styles.documentName}>{doc.file_name}</Text>
+                    <TouchableOpacity
+                      style={{ padding: 6, backgroundColor: '#FFE5E5', borderRadius: 6, marginLeft: 8 }}
+                      onPress={() => handleDeleteCustomerDoc(doc)}
+                    >
+                      <MaterialIcons name="delete-outline" size={18} color="#FF3B30" />
+                    </TouchableOpacity>
                   </View>
                 ))}
                 {!isReadOnly && (
@@ -2089,120 +2463,61 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                   <>
                     <TouchableOpacity style={styles.uploadButton} onPress={handleUploadMenu}>
                       <Text style={styles.uploadButtonText}>
-                        Upload Photo(s) ({customerDocs.filter(isImage).length}/2)
+                        Upload Photo(s) ({customerDocs.filter(isImage).length})
                       </Text>
                     </TouchableOpacity>
-                    {loadingImages ? (
-                      <ActivityIndicator size="small" style={{ margin: 8 }} />
-                    ) : (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginVertical: 8 }}>
-                        {customerDocs.filter(isImage).map(doc => (
-                          <TouchableOpacity key={doc.id} style={{ marginRight: 8, marginBottom: 8 }} onPress={() => { setDocModalUri(doc.file_data); setShowDocModal(true); }}>
-                            <Image source={{ uri: doc.file_data }} style={{ width: 50, height: 50, borderRadius: 0, borderWidth: 1, borderColor: '#ddd' }} />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
+              
+                    {/* Uploaded Photos Section - Moved to top */}
+                    <Text style={styles.sectionHeader}>Uploaded Photos</Text>
+                    {customerDocs.filter(isImage).length > 0 && (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
+                        {loadingImages ? (
+                          <ActivityIndicator size="small" style={{ margin: 8 }} />
+                        ) : (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginVertical: 8 }}>
+                            {customerDocs.filter(isImage).map(doc => (
+                              <View key={doc.id} style={{ marginRight: 10, marginBottom: 10, position: 'relative' }}>
+                                <TouchableOpacity onPress={() => openImageModal(doc.file_data, doc, 'customerDoc')}>
+                                  <Image source={{ uri: doc.file_data }} style={{ width: 60, height: 60, borderRadius: 6, borderWidth: 1, borderColor: '#ddd' }} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={{
+                                    position: 'absolute',
+                                    top: -6,
+                                    right: -6,
+                                    backgroundColor: '#FF3B30',
+                                    borderRadius: 12,
+                                    width: 22,
+                                    height: 22,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    elevation: 4,
+                                  }}
+                                  onPress={() => handleDeleteCustomerDoc(doc)}
+                                >
+                                  <MaterialIcons name="close" size={14} color="#FFF" />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </ScrollView>
                     )}
                   </>
                 )}
-                <Text style={styles.formLabel}>Name</Text>
-                <TextInput 
-                  value={selectedCustomer.name} 
-                  onChangeText={val => setSelectedCustomer({ ...selectedCustomer, name: val })} 
-                  style={isMissing('name') ? styles.formInputError : styles.formInput} 
-                />
-                <Text style={styles.formLabel}>Mobile</Text>
-                <TextInput 
-                  value={selectedCustomer.mobile} 
-                  onChangeText={val => setSelectedCustomer({ ...selectedCustomer, mobile: val })} 
-                  style={isMissing('mobile') ? styles.formInputError : styles.formInput} 
-                  keyboardType="phone-pad" 
-                />
-                <Text style={styles.formLabel}>Email</Text>
-                <TextInput 
-                  value={selectedCustomer.email} 
-                  onChangeText={val => setSelectedCustomer({ ...selectedCustomer, email: val })} 
-                  style={isMissing('email') ? styles.formInputError : styles.formInput} 
-                  keyboardType="email-address" 
-                />
-                <Text style={styles.formLabel}>Card No</Text>
-                <TextInput 
-                  value={selectedCustomer.book_no} 
-                  onChangeText={val => setSelectedCustomer({ ...selectedCustomer, book_no: val })} 
-                  style={isMissing('book_no') ? styles.formInputError : styles.formInput} 
-                />
+                
                 <Text style={styles.formLabel}>Customer Type</Text>
-                <Picker selectedValue={selectedCustomer.customer_type} onValueChange={val => setSelectedCustomer({ ...selectedCustomer, customer_type: val })} style={styles.formPicker}>
-                  <Picker.Item label="Select Type" value="" />
-                  {masterCustomerTypes.map(type => <Picker.Item key={type.id} label={type.status_name} value={type.status_name} />)}
-                </Picker>
-                <Text style={styles.formLabel}>Status</Text>
-                <TextInput value={selectedCustomer.status} editable={false} style={[styles.input, { backgroundColor: '#eee' }]} />
-                <Text style={styles.formLabel}>Area</Text>
                 <Picker
-                  selectedValue={selectedCustomer.area_id ? String(selectedCustomer.area_id) : ''}
-                  onValueChange={val => setSelectedCustomer({ ...selectedCustomer, area_id: val ? Number(val) : null })}
+                  selectedValue={selectedCustomer.customer_type}
+                  onValueChange={val => setSelectedCustomer({ ...selectedCustomer, customer_type: val })}
                   style={styles.formPicker}
                 >
-                  <Picker.Item label="Select Area" value="" />
-                  {areas.map(area => <Picker.Item key={area.id} label={area.area_name} value={String(area.id)} />)}
+                  <Picker.Item label="Select Type" value="" />
+                  {masterCustomerTypes.map(type => (
+                    <Picker.Item key={type.id} label={type.status_name} value={type.status_name} />
+                  ))}
                 </Picker>
-                
-                {/* Location Picker Section */}
-                <Text style={styles.sectionHeader}>Location</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={{ flex: 1, fontSize: 14, color: '#666' }}>
-                    Current: {selectedCustomer.latitude?.toFixed(6)}, {selectedCustomer.longitude?.toFixed(6)}
-                  </Text>
-                  <TouchableOpacity 
-                    style={[styles.uploadButton, { marginLeft: 8 }]} 
-                    onPress={() => openLocationPicker(selectedCustomer)}
-                  >
-                    <Text style={styles.uploadButtonText}>Change Location</Text>
-                  </TouchableOpacity>
-                </View>
-                
-                {/* Uploaded Photos Section - Moved to top */}
-                <Text style={styles.sectionHeader}>Uploaded Photos</Text>
-                {isEditMode && customerDocs.filter(isImage).length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
-                    {loadingImages ? (
-                      <ActivityIndicator size="small" style={{ margin: 8 }} />
-                    ) : (
-                      customerDocs.filter(isImage).map(doc => (
-                        <View key={doc.id} style={{ alignItems: 'center', marginRight: 12 }}>
-                          <TouchableOpacity onPress={() => { setDocModalUri(doc.file_data); setShowDocModal(true); }}>
-                            <Image source={{ uri: doc.file_data }} style={{ width: 60, height: 60, borderRadius: 0, borderWidth: 1, borderColor: '#ccc' }} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={async () => {
-                            Alert.alert('Delete', 'Are you sure you want to delete this image?', [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Delete', style: 'destructive', onPress: async () => {
-                                await supabase.from('customer_documents').delete().eq('id', doc.id);
-                                await fetchCustomerDocs(selectedCustomer.id);
-                                Alert.alert('Image Deleted', 'The image has been deleted.', [
-                                  { text: 'OK', onPress: () => {
-                                    // If less than 2 images, prompt to re-upload
-                                    const currentImages = customerDocs.filter(isImage).length - 1;
-                                    if (currentImages < 2) {
-                                      Alert.alert('Upload', 'You can upload a new image now.', [
-                                        { text: 'Upload', onPress: handleUploadMenu },
-                                        { text: 'Cancel', style: 'cancel' }
-                                      ]);
-                                    }
-                                  }}
-                                ]);
-                              }}
-                            ]);
-                          }}>
-                            <Text style={{ color: 'red', marginTop: 4, fontSize: 14, fontWeight: 'bold', textDecorationLine: 'underline' }}>Delete</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))
-                    )}
-                  </ScrollView>
-                )}
-                
+
                 <Text style={styles.formLabel}>Remarks</Text>
                 <TextInput value={selectedCustomer.remarks} onChangeText={val => setSelectedCustomer({ ...selectedCustomer, remarks: val })} style={styles.formInput} multiline numberOfLines={3} />
                 <Text style={styles.formLabel}>Amount Given</Text>
@@ -2558,17 +2873,37 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                           <Text>Date: {new Date(item.transaction_date).toLocaleDateString()}</Text>
                           <Text>Remarks: {item.remarks || 'No remarks'}</Text>
                           {item.payment_mode === 'upi' && item.upi_image && (
-                            <View style={{ alignItems: 'center', marginTop: 12 }}>
+                            <View style={{ alignItems: 'center', marginTop: 12, backgroundColor: '#F0F4F8', padding: 12, borderRadius: 8 }}>
                               <Text style={{ fontWeight: 'bold', marginBottom: 8, color: '#4A90E2' }}>UPI Payment Receipt</Text>
-                              <TouchableOpacity onPress={() => { setDocModalUri(item.upi_image); setShowDocModal(true); }}>
+                              <TouchableOpacity onPress={() => openImageModal(item.upi_image, item, 'transaction')}>
                                 <Image
                                   source={{ uri: item.upi_image }}
-                                  style={{ width: 120, height: 120, borderRadius: 0, borderWidth: 2, borderColor: '#4A90E2', marginBottom: 8 }}
+                                  style={{ width: 120, height: 120, borderRadius: 6, borderWidth: 2, borderColor: '#4A90E2', marginBottom: 8 }}
                                 />
                               </TouchableOpacity>
-                              <Text style={{ color: '#888', fontSize: 12 }}>Tap to view full image</Text>
+                              <Text style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>Tap to view full image</Text>
+                              <TouchableOpacity
+                                style={{
+                                  backgroundColor: '#FF3B30',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                }}
+                                onPress={() => handleDeleteTransactionImage(item)}
+                              >
+                                <MaterialIcons name="delete" size={16} color="#FFF" style={{ marginRight: 4 }} />
+                                <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>Delete Receipt Image</Text>
+                              </TouchableOpacity>
                             </View>
                           )}
+                          <TouchableOpacity 
+                            style={{ marginTop: 10, padding: 8, backgroundColor: '#FF3B30', borderRadius: 6, alignItems: 'center' }}
+                            onPress={() => handleDeleteTransaction(item)}
+                          >
+                             <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Delete Transaction</Text>
+                          </TouchableOpacity>
                         </View>
                       )}
                     </>
@@ -2682,9 +3017,41 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
                           <Picker.Item label="UPI" value="upi" />
                         </Picker>
                         {newTransactionPaymentType === 'upi' && (
-                          <TouchableOpacity style={styles.uploadButton} onPress={handleUploadUPIImage}>
-                            <Text style={styles.uploadButtonText}>📷 Add UPI Receipt</Text>
-                          </TouchableOpacity>
+                          <View style={{ marginVertical: 8 }}>
+                            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadUPIImage}>
+                              <Text style={styles.uploadButtonText}>
+                                {newTransactionUPIImageUrl ? '📷 Change UPI Receipt' : '📷 Add UPI Receipt'}
+                              </Text>
+                            </TouchableOpacity>
+                            {newTransactionUPIImageUrl ? (
+                              <View style={{ marginTop: 8, alignItems: 'center', position: 'relative' }}>
+                                <TouchableOpacity onPress={() => openImageModal(newTransactionUPIImageUrl)}>
+                                  <Image
+                                    source={{ uri: newTransactionUPIImageUrl }}
+                                    style={{ width: 80, height: 80, borderRadius: 6, borderWidth: 1, borderColor: '#4A90E2' }}
+                                  />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={{
+                                    backgroundColor: '#FF3B30',
+                                    paddingVertical: 4,
+                                    paddingHorizontal: 10,
+                                    borderRadius: 6,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    marginTop: 6,
+                                  }}
+                                  onPress={() => {
+                                    deleteImageFromStorage(newTransactionUPIImageUrl, 'customerstracker');
+                                    setNewTransactionUPIImageUrl('');
+                                  }}
+                                >
+                                  <MaterialIcons name="delete" size={14} color="#FFF" style={{ marginRight: 4 }} />
+                                  <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>Remove Image</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : null}
+                          </View>
                         )}
                         <TextInput value={newTransactionRemarks} onChangeText={setNewTransactionRemarks} placeholder="Remarks" style={styles.formInput} />
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
@@ -2714,13 +3081,38 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
           </View>
         </View>
       </Modal>
-      <Modal visible={showDocModal} transparent={true} animationType="fade" onRequestClose={() => setShowDocModal(false)}>
-        <TouchableOpacity style={styles.modalOverlay} onPressOut={() => setShowDocModal(false)}>
+      <Modal visible={showDocModal} transparent={true} animationType="fade" onRequestClose={() => { setShowDocModal(false); setActiveDocModalItem(null); }}>
+        <TouchableOpacity style={styles.modalOverlay} onPressOut={() => { setShowDocModal(false); setActiveDocModalItem(null); }}>
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <Image source={{ uri: docModalUri }} style={{ width: 320, height: 320, borderRadius: 0, borderWidth: 3, borderColor: '#4A90E2', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6, resizeMode: 'contain' }} />
-            <TouchableOpacity style={styles.docModalCloseButton} onPress={() => setShowDocModal(false)}>
-              <Text style={styles.docModalCloseButtonText}>Close</Text>
-            </TouchableOpacity>
+            <Image source={{ uri: docModalUri }} style={{ width: 320, height: 320, borderRadius: 8, borderWidth: 3, borderColor: '#4A90E2', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6, resizeMode: 'contain', backgroundColor: '#000' }} />
+            <View style={{ flexDirection: 'row', marginTop: 16, alignItems: 'center' }}>
+              {activeDocModalItem && (
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: '#FF3B30',
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginRight: 12,
+                  }}
+                  onPress={() => {
+                    if (activeDocModalItem.type === 'customerDoc') {
+                      handleDeleteCustomerDoc(activeDocModalItem.item);
+                    } else if (activeDocModalItem.type === 'transaction') {
+                      handleDeleteTransactionImage(activeDocModalItem.item);
+                    }
+                  }}
+                >
+                  <MaterialIcons name="delete" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Delete Image</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.docModalCloseButton} onPress={() => { setShowDocModal(false); setActiveDocModalItem(null); }}>
+                <Text style={styles.docModalCloseButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -2797,7 +3189,21 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
           </View>
         </View>
       </Modal>
-      
+
+      {/* Customer Map Modal */}
+      <CustomerMapModal
+        visible={showCustomerMapModal}
+        onClose={() => {
+          setShowCustomerMapModal(false);
+          setMapFocusedCustomer(null);
+          setMapInitialMode('view');
+        }}
+        customers={filteredCustomers && filteredCustomers.length > 0 ? filteredCustomers : customers}
+        selectedAreaName={selectedAreaName}
+        focusedCustomer={mapFocusedCustomer}
+        initialMode={mapInitialMode}
+        onUpdateLocation={handleUpdateCustomerLocation}
+      />
     </View>
   );
 }

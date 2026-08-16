@@ -339,19 +339,22 @@ export default function App() {
       },
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 15 }}>
-          <TouchableOpacity onPress={() => setShowRealtimeCollaboration(prev => !prev)} style={{ marginRight: 15 }}>
-            <MaterialIcons name={showRealtimeCollaboration ? "edit" : "edit-off"} size={24} color="#007AFF" />
+          <TouchableOpacity onPress={() => setShowRealtimeCollaboration(prev => !prev)} style={{ marginRight: 12 }}>
+            <MaterialIcons name={showRealtimeCollaboration ? "edit" : "edit-off"} size={22} color="#007AFF" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowGlobalChat(prev => !prev)} style={{ marginRight: 15 }}>
-            <MaterialIcons name={showGlobalChat ? "chat-bubble" : "chat-bubble-outline"} size={24} color="#007AFF" />
+          <TouchableOpacity onPress={() => setShowGlobalChat(prev => !prev)} style={{ marginRight: 12 }}>
+            <MaterialIcons name={showGlobalChat ? "chat-bubble" : "chat-bubble-outline"} size={22} color="#007AFF" />
           </TouchableOpacity>
           
-          <QuickTransactionButton onPress={() => navigation.navigate('QuickTransaction')} />
-          <TouchableOpacity onPress={() => navigation.navigate('Expenses')} style={{ marginRight: 15 }}>
-            <MaterialIcons name="receipt-long" size={24} color="#007AFF" />
+          <QuickTransactionButton 
+            style={{ marginRight: 12 }}
+            onPress={() => navigation.navigate('QuickTransaction')} 
+          />
+          <TouchableOpacity onPress={() => navigation.navigate('Expenses')} style={{ marginRight: 12 }}>
+            <MaterialIcons name="receipt-long" size={22} color="#007AFF" />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowCalculatorModal(true)}>
-            <Icon name="calculator" size={20} color="#007AFF" />
+            <Icon name="calculator" size={19} color="#007AFF" />
           </TouchableOpacity>
         </View>
       ),

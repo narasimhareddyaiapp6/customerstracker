@@ -90,15 +90,17 @@ export default function AreaSearchBar({
           onFocus={() => setIsOpen(true)}
         />
 
-        {query ? (
-          <TouchableOpacity
-            onPress={handleClear}
-            style={styles.actionIcon}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <MaterialIcons name="cancel" size={20} color="#8E8E93" />
-          </TouchableOpacity>
-        ) : (
+        <View style={styles.rightActions}>
+          {query ? (
+            <TouchableOpacity
+              onPress={handleClear}
+              style={styles.actionIcon}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="cancel" size={20} color="#8E8E93" />
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
             onPress={toggleDropdown}
             style={styles.actionIcon}
@@ -110,7 +112,7 @@ export default function AreaSearchBar({
               color="#007AFF"
             />
           </TouchableOpacity>
-        )}
+        </View>
       </View>
 
       {isOpen && (
@@ -181,6 +183,7 @@ const styles = StyleSheet.create({
     width: '100%',
     position: 'relative',
     marginBottom: 8,
+    overflow: 'visible',
     ...Platform.select({
       ios: {
         zIndex: 1000,
@@ -195,6 +198,7 @@ const styles = StyleSheet.create({
   },
   containerOpen: {
     zIndex: 999999,
+    overflow: 'visible',
     ...Platform.select({
       ios: {
         zIndex: 999999,
@@ -221,6 +225,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    overflow: 'visible',
+  },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   iconButton: {
     marginRight: 6,
@@ -243,7 +252,7 @@ const styles = StyleSheet.create({
   },
   actionIcon: {
     padding: 4,
-    marginLeft: 6,
+    marginLeft: 4,
   },
   suggestionsContainer: {
     position: 'absolute',

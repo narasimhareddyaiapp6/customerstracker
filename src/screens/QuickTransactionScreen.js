@@ -24,6 +24,7 @@ import { OfflineStorageService } from '../services/OfflineStorageService';
 import { v4 as uuidv4 } from 'uuid';
 import AreaSearchBar from '../components/AreaSearchBar';
 import { fetchAreasForUser, getDayName, getCurrentTime } from '../services/AreaService';
+import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
 
 export default function QuickTransactionScreen({ navigation, user, userProfile, route }) {
   // console.log('QuickTransactionScreen: user prop:', user);
@@ -327,29 +328,25 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
     }
   };
 
-  const uploadImageToSupabaseStorage = async (uri, userId, mimeType) => {
+  const uploadImageToSupabaseStorage = async (uri, userId, mimeType = 'image/jpeg') => {
     try {
-      const fileExt = mimeType.split('/')[1];
+      const fileExt = (mimeType && mimeType.includes('/')) ? mimeType.split('/')[1] : 'jpg';
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 100000)}.${fileExt}`;
       const filePath = `payment_proofs/${userId}/${fileName}`;
 
-      const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const fileBuffer = Buffer.from(fileData, 'base64');
+      const { publicUrl, error: uploadError } = await uploadImageToStorage({
+        uri,
+        filePath,
+        bucketName: 'customerstracker',
+        mimeType: mimeType || 'image/jpeg',
+      });
 
-      const { data, error } = await supabase.storage
-        .from('customerstracker')
-        .upload(filePath, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-
-      if (error) {
-        Alert.alert('Error', 'Failed to upload image: ' + error.message);
+      if (uploadError || !publicUrl) {
+        Alert.alert('Error', 'Failed to upload image: ' + (uploadError?.message || 'Unknown error'));
         return null;
       }
 
-      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
-      return urlData?.publicUrl || '';
+      return publicUrl;
     } catch (error) {
       Alert.alert('Error', 'Failed to upload image: ' + error.message);
       return null;
@@ -444,6 +441,21 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
         { text: "Cancel", style: "cancel" },
       ]
     );
+  };
+
+  const handleRemovePaymentProofImage = async () => {
+    if (paymentProofImage) {
+      try {
+        if (typeof paymentProofImage === 'string' && (paymentProofImage.startsWith('http') || paymentProofImage.startsWith('data:'))) {
+          await deleteImageFromStorage(paymentProofImage, 'customerstracker');
+        } else if (typeof paymentProofImage === 'string' && paymentProofImage.length === 36) {
+          await OfflineStorageService.clearOfflineImage(paymentProofImage);
+        }
+      } catch (err) {
+        console.warn('Error removing payment proof image:', err);
+      }
+      setPaymentProofImage(null);
+    }
   };
 
   const handleAddTransaction = async () => {
@@ -762,10 +774,27 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Payment Proof (UPI):</Text>
               <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage}>
-                <Text style={styles.imagePickerButtonText}>Pick Image</Text>
+                <Text style={styles.imagePickerButtonText}>{paymentProofImage ? 'Change Image' : 'Pick Image'}</Text>
               </TouchableOpacity>
               {paymentProofImage && (
-                <Image source={{ uri: paymentProofImage }} style={styles.paymentProofImage} />
+                <View style={{ marginTop: 10, alignItems: 'center' }}>
+                  <Image source={{ uri: paymentProofImage }} style={styles.paymentProofImage} />
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: '#FF3B30',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 6,
+                      marginTop: 8,
+                    }}
+                    onPress={handleRemovePaymentProofImage}
+                  >
+                    <MaterialIcons name="delete" size={16} color="#FFF" style={{ marginRight: 4 }} />
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Remove Image</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
           )}

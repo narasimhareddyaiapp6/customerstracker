@@ -1,0 +1,23 @@
+
+
+--1 antigravity google cli for code development
+
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+--2 for run code on mobile 
+npm install -g eas-cl
+
+-- install below ngrok for public access expo go
+npm install -g ngrok
+
+
+npx expo start --tunnel
+
+
+--after login to expo
+
+narasimhaexpo
+
+
+
+

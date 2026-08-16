@@ -13,14 +13,20 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from '../services/supabaseClient';
 import { Buffer } from 'buffer';
 import { OfflineStorageService } from '../services/OfflineStorageService';
-import { registerForPushNotificationsAsync } from '../services/notificationService'; // New import
-import * as Notifications from 'expo-notifications'; // New import
+import { registerForPushNotificationsAsync } from '../services/notificationService';
+import * as Notifications from 'expo-notifications';
+import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
+import { MaterialIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import CustomerMapModal from '../components/CustomerMapModal';
+import { locationTracker } from '../services/locationTracker';
 
 // Utility function to convert BYTEA hex to base64
 function hexToBase64(hexString) {
@@ -47,6 +53,14 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
   const [notificationTitle, setNotificationTitle] = useState('Test Title');
   const [notificationMessage, setNotificationMessage] = useState('This is a test notification.');
 
+  const [userLocation, setUserLocation] = useState({
+    latitude: userProfile?.latitude || null,
+    longitude: userProfile?.longitude || null,
+  });
+  const [trackingEnabled, setTrackingEnabled] = useState(userProfile?.location_status === 1);
+  const [fetchingGps, setFetchingGps] = useState(false);
+  const [showProfileMapModal, setShowProfileMapModal] = useState(false);
+
   const checkNotificationStatus = useCallback(async () => {
     const { status } = await Notifications.getPermissionsAsync();
     setNotificationStatus(status);
@@ -58,8 +72,145 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
     } else {
       setProfileImage(null);
     }
+    if (userProfile) {
+      setUserLocation({
+        latitude: userProfile.latitude || null,
+        longitude: userProfile.longitude || null,
+      });
+      setTrackingEnabled(userProfile.location_status === 1);
+    }
     checkNotificationStatus(); // Check status on mount
   }, [userProfile, checkNotificationStatus]);
+
+  const handleUpdateUserLocation = async (lat, lon) => {
+    const targetUserId = userProfile?.id || user?.id;
+    if (!targetUserId) {
+      Alert.alert('Error', 'User ID not found');
+      return;
+    }
+
+    try {
+      const parsedLat = typeof lat === 'number' ? lat : parseFloat(lat);
+      const parsedLon = typeof lon === 'number' ? lon : parseFloat(lon);
+
+      setUserLocation({ latitude: parsedLat, longitude: parsedLon });
+
+      // Update in users table
+      const { error } = await supabase
+        .from('users')
+        .update({
+          latitude: parsedLat,
+          longitude: parsedLon,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetUserId);
+
+      if (error) {
+        console.warn('Update users location warning:', error);
+      }
+
+      // Also record in location_history
+      await supabase.from('location_history').insert([
+        {
+          user_id: targetUserId,
+          user_email: userProfile?.email || user?.email || '',
+          latitude: parsedLat,
+          longitude: parsedLon,
+          timestamp: new Date().toISOString(),
+          device_name: Platform.OS,
+        },
+      ]);
+
+      Alert.alert('Success', 'Profile location updated successfully!');
+      if (reloadUserProfile) reloadUserProfile();
+    } catch (err) {
+      console.error('Error updating profile location:', err);
+      Alert.alert('Error', 'Failed to update location: ' + err.message);
+    }
+  };
+
+  const fetchCurrentGpsForProfile = async () => {
+    try {
+      setFetchingGps(true);
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to fetch current GPS coordinates.');
+        setFetchingGps(false);
+        return;
+      }
+
+      let loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      if (loc && loc.coords) {
+        await handleUpdateUserLocation(loc.coords.latitude, loc.coords.longitude);
+      }
+    } catch (err) {
+      console.error('Error fetching GPS for profile:', err);
+      Alert.alert('Error', 'Failed to capture GPS location: ' + (err.message || err));
+    } finally {
+      setFetchingGps(false);
+    }
+  };
+
+  const handleToggleTracking = async (value) => {
+    const targetUserId = userProfile?.id || user?.id;
+    if (!targetUserId) return;
+
+    setTrackingEnabled(value);
+    try {
+      const statusValue = value ? 1 : 0;
+      await supabase
+        .from('users')
+        .update({ location_status: statusValue })
+        .eq('id', targetUserId);
+
+      if (value) {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          locationTracker.startTracking(targetUserId, userProfile?.email || user?.email);
+        }
+      } else {
+        locationTracker.stopTracking();
+      }
+
+      if (reloadUserProfile) reloadUserProfile();
+    } catch (err) {
+      console.error('Error updating location tracking status:', err);
+    }
+  };
+
+  const handleClearProfileLocation = async () => {
+    const targetUserId = userProfile?.id || user?.id;
+    if (!targetUserId) return;
+
+    Alert.alert(
+      'Clear Location',
+      'Are you sure you want to clear your assigned profile location?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUserLocation({ latitude: null, longitude: null });
+              await supabase
+                .from('users')
+                .update({ latitude: null, longitude: null })
+                .eq('id', targetUserId);
+
+              if (reloadUserProfile) reloadUserProfile();
+              Alert.alert('Success', 'Profile location cleared.');
+            } catch (err) {
+              console.error('Error clearing profile location:', err);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // Using useCallback to ensure function reference stability
   const handleLogout = async () => {
@@ -182,34 +333,29 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
     );
   }, [user]);
 
-  const uploadProfileImage = async (uri, userId, mimeType) => {
+  const uploadProfileImage = async (uri, userId, mimeType = 'image/jpeg') => {
     try {
-      const fileExt = mimeType.split('/')[1];
+      const fileExt = (mimeType && mimeType.includes('/')) ? mimeType.split('/')[1] : 'jpg';
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 100000)}.${fileExt}`;
       const filePath = `profiles/${userId}/${fileName}`;
-      const fileData = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const fileBuffer = Buffer.from(fileData, 'base64');
-      
-      const { data, error } = await supabase.storage
-        .from('customerstracker')
-        .upload(filePath, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
-      
-      if (error) {
-        Alert.alert('Error', 'Failed to upload profile image: ' + error.message);
+
+      const { publicUrl, error: uploadError } = await uploadImageToStorage({
+        uri,
+        filePath,
+        bucketName: 'customerstracker',
+        mimeType: mimeType || 'image/jpeg',
+      });
+
+      if (uploadError || !publicUrl) {
+        Alert.alert('Error', 'Failed to upload profile image: ' + (uploadError?.message || 'Unknown error'));
         return null;
       }
-      
-      const { data: urlData } = supabase.storage.from('customerstracker').getPublicUrl(filePath);
-      const publicUrl = urlData?.publicUrl || '';
       
       const { error: updateError } = await supabase.from('users').update({ profile_photo_data: publicUrl }).eq('id', userId);
       if (updateError) {
         console.error('Failed to update profile_photo_data in users table:', updateError);
       } else {
-        console.log('profile_photo_data updated in users table:', publicUrl);
+        console.log('profile_photo_data updated in users table:', publicUrl?.substring(0, 50));
       }
       return publicUrl;
     } catch (error) {
@@ -245,6 +391,44 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
       console.error('Pick image error:', error);
       Alert.alert('Error', 'Failed to pick image: ' + error.message);
     }
+  };
+
+  const handleDeleteProfileImage = () => {
+    if (!profileImage) return;
+    Alert.alert(
+      'Delete Profile Photo',
+      'Are you sure you want to delete your profile photo?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteImageFromStorage(profileImage, 'customerstracker');
+              const targetUserId = userProfile?.id || user?.id;
+              if (targetUserId) {
+                const { error } = await supabase
+                  .from('user_profiles')
+                  .update({ profile_photo_data: null })
+                  .eq('id', targetUserId);
+
+                if (error) {
+                  console.error('Error updating user_profiles on photo delete:', error);
+                }
+              }
+              setProfileImage(null);
+              setShowImageModal(false);
+              if (reloadUserProfile) reloadUserProfile();
+              Alert.alert('Success', 'Profile photo deleted successfully.');
+            } catch (err) {
+              console.error('Error deleting profile photo:', err);
+              Alert.alert('Error', 'Failed to delete profile photo: ' + err.message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleSendTestNotification = async () => {
@@ -297,9 +481,19 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
               <Text style={styles.profileImageText}>👤</Text>
             </View>
           )}
-          <TouchableOpacity style={styles.changeImageButton} onPress={pickImage}>
-            <Text style={styles.changeImageText}>Change Photo</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', marginTop: 10 }}>
+            <TouchableOpacity style={styles.changeImageButton} onPress={pickImage}>
+              <Text style={styles.changeImageText}>{profileImage ? 'Change Photo' : 'Upload Photo'}</Text>
+            </TouchableOpacity>
+            {profileImage && (
+              <TouchableOpacity
+                style={[styles.changeImageButton, { backgroundColor: '#FF3B30', borderColor: '#FF3B30', marginLeft: 10 }]}
+                onPress={handleDeleteProfileImage}
+              >
+                <Text style={[styles.changeImageText, { color: '#FFF' }]}>Delete Photo</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
 
@@ -324,6 +518,132 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>User ID:</Text>
             <Text style={styles.infoValue}>{userProfile?.id || user?.id || 'Loading...'}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Profile Location & Tracking Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Profile Location & Tracking</Text>
+        <View style={styles.userInfoCard}>
+          {/* Location Status Card */}
+          <View style={{
+            backgroundColor: (userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? '#E8F5E9' : '#FFF9C4',
+            borderColor: (userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? '#4CAF50' : '#FFC107',
+            borderWidth: 1.5,
+            borderRadius: 10,
+            padding: 12,
+            marginBottom: 12,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+                <MaterialIcons
+                  name={(userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? 'location-on' : 'location-off'}
+                  size={22}
+                  color={(userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? '#2E7D32' : '#E65100'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={{
+                  fontWeight: 'bold',
+                  fontSize: 14,
+                  color: (userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? '#1B5E20' : '#E65100',
+                }}>
+                  {(userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0)
+                    ? 'Assigned Base Location'
+                    : 'No Base Location Set'}
+                </Text>
+              </View>
+              {(userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? (
+                <TouchableOpacity
+                  onPress={handleClearProfileLocation}
+                  style={{ backgroundColor: '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+                >
+                  <Text style={{ color: '#D32F2F', fontSize: 12, fontWeight: 'bold' }}>Clear</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {(userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? (
+              <View style={{ backgroundColor: '#FFFFFF', padding: 8, borderRadius: 6, marginBottom: 8, borderWidth: 1, borderColor: '#C8E6C9' }}>
+                <Text style={{ fontSize: 12, color: '#2E7D32', fontWeight: '600' }}>
+                  🌐 Lat: <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#1B5E20' }}>{parseFloat(userLocation.latitude).toFixed(6)}</Text>  |  Lng: <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#1B5E20' }}>{parseFloat(userLocation.longitude).toFixed(6)}</Text>
+                </Text>
+              </View>
+            ) : (
+              <Text style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                Set your home or office location for proximity calculations and agent tracking.
+              </Text>
+            )}
+
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#2E7D32',
+                  paddingVertical: 10,
+                  paddingHorizontal: 8,
+                  borderRadius: 8,
+                  shadowColor: '#2E7D32',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 2,
+                  elevation: 2,
+                }}
+                onPress={fetchCurrentGpsForProfile}
+                disabled={fetchingGps}
+              >
+                {fetchingGps ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <MaterialIcons name="my-location" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Current GPS</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#007AFF',
+                  paddingVertical: 10,
+                  paddingHorizontal: 8,
+                  borderRadius: 8,
+                  shadowColor: '#007AFF',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 2,
+                  elevation: 2,
+                }}
+                onPress={() => setShowProfileMapModal(true)}
+              >
+                <MaterialIcons name="map" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>Pick on Map</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Background Location Tracking Toggle */}
+          <View style={[styles.settingRow, { marginTop: 4, marginBottom: 0 }]}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={styles.settingLabel}>Live Location Tracking</Text>
+              <Text style={{ fontSize: 12, color: '#8E8E93', marginTop: 2 }}>
+                {trackingEnabled ? '🟢 Active (sharing location updates)' : '⚪ Disabled'}
+              </Text>
+            </View>
+            <Switch
+              value={trackingEnabled}
+              onValueChange={handleToggleTracking}
+              trackColor={{ false: '#E5E5EA', true: '#34C759' }}
+              thumbColor="#FFFFFF"
+            />
           </View>
         </View>
       </View>
@@ -416,14 +736,41 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
             style={{ width: 300, height: 300, borderRadius: 12, resizeMode: 'contain' }}
             onError={e => console.error('Modal image load error:', e.nativeEvent)}
           />
-          <TouchableOpacity
-            style={{ marginTop: 20, backgroundColor: '#fff', padding: 10, borderRadius: 8 }}
-            onPress={() => setShowImageModal(false)}
-          >
-            <Text style={{ color: '#007AFF', fontWeight: 'bold' }}>Close</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', marginTop: 20, alignItems: 'center' }}>
+            <TouchableOpacity
+              style={{ backgroundColor: '#FF3B30', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, flexDirection: 'row', alignItems: 'center', marginRight: 12 }}
+              onPress={handleDeleteProfileImage}
+            >
+              <MaterialIcons name="delete" size={18} color="#FFF" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Delete Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 }}
+              onPress={() => setShowImageModal(false)}
+            >
+              <Text style={{ color: '#007AFF', fontWeight: 'bold' }}>Close</Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Profile Location Map Modal */}
+      <CustomerMapModal
+        visible={showProfileMapModal}
+        onClose={() => setShowProfileMapModal(false)}
+        customers={[]}
+        selectedAreaName="My Profile Location"
+        focusedCustomer={{
+          id: userProfile?.id || user?.id || 'profile',
+          name: userProfile?.name || user?.email || 'My Location',
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+        }}
+        initialMode="pick"
+        onUpdateLocation={(id, lat, lng) => {
+          handleUpdateUserLocation(lat, lng);
+        }}
+      />
 
     </ScrollView>
   );
