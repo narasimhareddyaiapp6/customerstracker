@@ -1,9 +1,3 @@
-try {
-  require('dotenv').config();
-} catch (e) {
-  // dotenv not found, skipping
-}
-
 export default {
   "expo": {
     "name": "Customers Tracker",
@@ -38,7 +32,7 @@ export default {
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
       ],
-      "package": "com.narasimhaexpo.locationtrackermobile"
+      "package": "com.narasimhaexpo.customerstracker"
     },
     "web": {
       "bundler": "metro",
@@ -46,6 +40,7 @@ export default {
       "jsEngine": "jsc"
     },
     "plugins": [
+      "expo-font",
       [
         "expo-image-picker",
         {
@@ -64,9 +59,7 @@ export default {
     "updates": {
       "url": "https://u.expo.dev/22ad9b0d-c4e9-4bba-bad2-9e93641a6cb0"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "sdkVersion": "53.0.0",
     
     "extra": {

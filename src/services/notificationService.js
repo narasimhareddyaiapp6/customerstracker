@@ -65,7 +65,11 @@ export async function registerForPushNotificationsAsync(user) {
 
     if (isExpoGo) {
       // In Expo Go, get the Expo token
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      const projectId =
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        Constants.manifest?.extra?.eas?.projectId ||
+        Constants.manifest2?.extra?.expoClient?.extra?.eas?.projectId ||
+        '22ad9b0d-c4e9-4bba-bad2-9e93641a6cb0';
       const expoTokenObject = await Notifications.getExpoPushTokenAsync({ projectId });
       pushToken = expoTokenObject.data;
       console.log("⚠️ Running in Expo Go. Using Expo Token:", pushToken);

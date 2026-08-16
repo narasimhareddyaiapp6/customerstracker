@@ -5,7 +5,7 @@
 curl -fsSL https://antigravity.google/cli/install.sh | bash
 
 --2 for run code on mobile 
-npm install -g eas-cl
+npm install -g eas-cli
 
 -- install below ngrok for public access expo go
 npm install -g ngrok
