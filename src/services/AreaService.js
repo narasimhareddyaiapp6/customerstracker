@@ -101,8 +101,43 @@ export const isAreaAccessibleForUser = (area, userType) => {
   return true;
 };
 
-export const fetchAreasForUser = async ({ userId, userType }) => {
-  const normalizedType = userType ? String(userType).trim().toLowerCase() : '';
+export const fetchAreasForUser = async ({ userId, userType } = {}) => {
+  let currentUserId = userId;
+  let resolvedUserType = userType;
+
+  // 1. If userId wasn't provided, resolve from active auth session
+  if (!currentUserId) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData?.session?.user?.id) {
+        currentUserId = sessionData.session.user.id;
+        if (!resolvedUserType) {
+          resolvedUserType = sessionData.session.user.user_metadata?.user_type;
+        }
+      }
+    } catch (e) {
+      console.warn('AreaService: Could not resolve session user id:', e);
+    }
+  }
+
+  // 2. If userType wasn't provided or is undefined, resolve it from the 'users' table using currentUserId
+  if (!resolvedUserType && currentUserId) {
+    try {
+      const { data: userData, error: userErr } = await supabase
+        .from('users')
+        .select('user_type')
+        .eq('id', currentUserId)
+        .maybeSingle();
+
+      if (!userErr && userData?.user_type) {
+        resolvedUserType = userData.user_type;
+      }
+    } catch (e) {
+      console.warn('AreaService: Could not resolve user_type from DB:', e);
+    }
+  }
+
+  const normalizedType = resolvedUserType ? String(resolvedUserType).trim().toLowerCase() : 'user';
   const isAdmin =
     normalizedType === 'superadmin' ||
     normalizedType === 'admin' ||
@@ -118,80 +153,97 @@ export const fetchAreasForUser = async ({ userId, userType }) => {
         .order('area_name', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        await OfflineStorageService.saveOfflineAreas(data);
+        await OfflineStorageService.saveOfflineAreas(data, currentUserId);
         return data;
       }
+      return data || [];
     } else {
+      // Regular user (user_type === 'user' or non-admin): ONLY show areas assigned to user's group(s)
+      if (!currentUserId) {
+        return [];
+      }
+
       const areaMap = new Map();
 
-      if (userId) {
-        // Query user_groups to get group_ids for this user
-        const { data: userGroups, error: ugError } = await supabase
-          .from('user_groups')
-          .select('group_id')
-          .eq('user_id', userId);
+      // Query user_groups to get group_ids for this user
+      const { data: userGroups, error: ugError } = await supabase
+        .from('user_groups')
+        .select('group_id')
+        .eq('user_id', currentUserId);
 
-        if (!ugError && userGroups && userGroups.length > 0) {
-          const groupIds = userGroups.map(ug => ug.group_id).filter(Boolean);
-
-          if (groupIds.length > 0) {
-            // Query group_areas table for assigned area_ids
-            const { data: groupAreas } = await supabase
-              .from('group_areas')
-              .select('area_id')
-              .in('group_id', groupIds);
-
-            // Query groups table for directly linked area_id
-            const { data: groupsWithArea } = await supabase
-              .from('groups')
-              .select('area_id')
-              .in('id', groupIds);
-
-            const groupAreaIds = [
-              ...(groupAreas || []).map(ga => ga.area_id),
-              ...(groupsWithArea || []).map(g => g.area_id),
-            ].filter(Boolean);
-
-            const uniqueAreaIds = [...new Set(groupAreaIds)];
-
-            if (uniqueAreaIds.length > 0) {
-              const { data: areaRecords, error: arError } = await supabase
-                .from('area_master')
-                .select('*')
-                .in('id', uniqueAreaIds)
-                .order('area_name', { ascending: true });
-
-              if (!arError && areaRecords && areaRecords.length > 0) {
-                areaRecords.forEach(a => areaMap.set(a.id, a));
-              }
-            }
-          }
-        }
+      if (ugError) {
+        console.error('AreaService: Error fetching user_groups:', ugError);
+        await OfflineStorageService.saveOfflineAreas([], currentUserId);
+        return [];
       }
 
-      // If no group-specific areas were found, load all active areas from area_master
-      if (areaMap.size === 0) {
-        const { data: allAreas, error: allErr } = await supabase
-          .from('area_master')
-          .select('*')
-          .order('area_name', { ascending: true });
-
-        if (!allErr && allAreas && allAreas.length > 0) {
-          allAreas.forEach(a => areaMap.set(a.id, a));
-        }
+      if (!userGroups || userGroups.length === 0) {
+        // User has no assigned group -> Return empty array (do NOT show any areas)
+        await OfflineStorageService.saveOfflineAreas([], currentUserId);
+        return [];
       }
 
-      const allFoundAreas = Array.from(areaMap.values());
-      const accessibleAreas = allFoundAreas.filter(area => isAreaAccessibleForUser(area, userType));
-      const result = accessibleAreas.length > 0 ? accessibleAreas : allFoundAreas;
+      const groupIds = userGroups.map(ug => ug.group_id).filter(Boolean);
 
-      if (allFoundAreas.length > 0) {
-        await OfflineStorageService.saveOfflineAreas(allFoundAreas);
+      if (groupIds.length === 0) {
+        await OfflineStorageService.saveOfflineAreas([], currentUserId);
+        return [];
       }
 
-      if (result.length > 0) {
-        return result;
+      // Query group_areas table for assigned area_ids
+      const { data: groupAreas, error: gaError } = await supabase
+        .from('group_areas')
+        .select('area_id')
+        .in('group_id', groupIds);
+
+      if (gaError) {
+        console.error('AreaService: Error fetching group_areas:', gaError);
       }
+
+      // Query groups table for directly linked area_id
+      const { data: groupsWithArea, error: gwaError } = await supabase
+        .from('groups')
+        .select('area_id')
+        .in('id', groupIds);
+
+      if (gwaError) {
+        console.error('AreaService: Error fetching groups area_id:', gwaError);
+      }
+
+      const groupAreaIds = [
+        ...(groupAreas || []).map(ga => ga.area_id),
+        ...(groupsWithArea || []).map(g => g.area_id),
+      ].filter(Boolean);
+
+      const uniqueAreaIds = [...new Set(groupAreaIds)];
+
+      if (uniqueAreaIds.length === 0) {
+        // User's group(s) have no assigned areas -> Return empty array (do NOT show any areas)
+        await OfflineStorageService.saveOfflineAreas([], currentUserId);
+        return [];
+      }
+
+      const { data: areaRecords, error: arError } = await supabase
+        .from('area_master')
+        .select('*')
+        .in('id', uniqueAreaIds)
+        .order('area_name', { ascending: true });
+
+      if (arError) {
+        console.error('AreaService: Error fetching area_master records for group:', arError);
+        await OfflineStorageService.saveOfflineAreas([], currentUserId);
+        return [];
+      }
+
+      if (areaRecords && areaRecords.length > 0) {
+        areaRecords.forEach(a => areaMap.set(a.id, a));
+      }
+
+      const assignedAreas = Array.from(areaMap.values());
+      const accessibleAreas = assignedAreas.filter(area => isAreaAccessibleForUser(area, resolvedUserType));
+
+      await OfflineStorageService.saveOfflineAreas(accessibleAreas, currentUserId);
+      return accessibleAreas;
     }
   } catch (onlineError) {
     console.warn('AreaService: Online fetch failed, falling back to offline storage:', onlineError);
@@ -199,10 +251,14 @@ export const fetchAreasForUser = async ({ userId, userType }) => {
 
   // 2. Offline storage fallback
   try {
-    const offlineAreas = await OfflineStorageService.getOfflineAreas();
+    const offlineAreas = await OfflineStorageService.getOfflineAreas(currentUserId);
     if (offlineAreas && offlineAreas.length > 0) {
-      const filtered = offlineAreas.filter(area => isAreaAccessibleForUser(area, userType));
-      return filtered.length > 0 ? filtered : offlineAreas;
+      if (isAdmin) {
+        return offlineAreas;
+      }
+      // For non-admin user, strictly filter by accessibility
+      const filtered = offlineAreas.filter(area => isAreaAccessibleForUser(area, resolvedUserType));
+      return filtered;
     }
   } catch (offlineError) {
     console.error('AreaService: Offline storage fetch failed:', offlineError);

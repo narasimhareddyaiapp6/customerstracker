@@ -312,6 +312,11 @@ export default function App() {
   const handleLogout = async () => {
     console.log('🛑 Logging out, stopping location tracking...');
     await locationTracker.stopTracking();
+    const currentUserId = user?.id || userProfile?.id;
+    if (currentUserId) {
+      await OfflineStorageService.clearOfflineAreas(currentUserId);
+    }
+    await OfflineStorageService.clearOfflineAreas();
     await AsyncStorage.removeItem('user_id');
     await AsyncStorage.removeItem('user_email');
     await SecureStoreAdapter.removeItem('userSession');

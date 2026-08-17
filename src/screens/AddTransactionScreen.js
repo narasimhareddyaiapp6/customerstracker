@@ -28,11 +28,16 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
       const userId = user?.id || userProfile?.id;
       if (!userId && !userProfile && !user) return;
       try {
-        const userType = userProfile?.user_type || user?.user_type;
+        const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
         const fetchedAreas = await fetchAreasForUser({ userId, userType });
         setAreas(fetchedAreas || []);
         if (fetchedAreas && fetchedAreas.length > 0) {
-          setSelectedArea(fetchedAreas[0].id);
+          const currentAreaStillValid = fetchedAreas.some(a => a.id === selectedArea);
+          if (!selectedArea || !currentAreaStillValid) {
+            setSelectedArea(fetchedAreas[0].id);
+          }
+        } else {
+          setSelectedArea('');
         }
       } catch (error) {
         console.error('Error fetching areas in AddTransactionScreen:', error);

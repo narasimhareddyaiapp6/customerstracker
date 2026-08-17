@@ -166,7 +166,7 @@ export default function AreaSearchBar({
             ) : (
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>
-                  {safeAreas.length === 0 ? 'Loading or no areas available...' : 'No matching areas found'}
+                  {safeAreas.length === 0 ? 'No areas assigned to your account' : 'No matching areas found'}
                 </Text>
               </View>
             )}

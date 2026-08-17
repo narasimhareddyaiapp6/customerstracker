@@ -131,9 +131,10 @@ export const OfflineStorageService = {
     }
   },
 
-  getOfflineAreas: async () => {
+  getOfflineAreas: async (userId = null) => {
     try {
-      const jsonValue = await AsyncStorage.getItem(OFFLINE_AREAS_KEY);
+      const key = userId ? `${OFFLINE_AREAS_KEY}_${userId}` : OFFLINE_AREAS_KEY;
+      const jsonValue = await AsyncStorage.getItem(key);
       return jsonValue != null ? JSON.parse(jsonValue) : [];
     } catch (e) {
       console.error('Error getting offline areas', e);
@@ -141,12 +142,26 @@ export const OfflineStorageService = {
     }
   },
 
-  saveOfflineAreas: async (areas) => {
+  saveOfflineAreas: async (areas, userId = null) => {
     try {
-      const jsonValue = JSON.stringify(areas);
+      const jsonValue = JSON.stringify(areas || []);
+      if (userId) {
+        await AsyncStorage.setItem(`${OFFLINE_AREAS_KEY}_${userId}`, jsonValue);
+      }
       await AsyncStorage.setItem(OFFLINE_AREAS_KEY, jsonValue);
     } catch (e) {
       console.error('Error saving offline areas', e);
+    }
+  },
+
+  clearOfflineAreas: async (userId = null) => {
+    try {
+      if (userId) {
+        await AsyncStorage.removeItem(`${OFFLINE_AREAS_KEY}_${userId}`);
+      }
+      await AsyncStorage.removeItem(OFFLINE_AREAS_KEY);
+    } catch (e) {
+      console.error('Error clearing offline areas', e);
     }
   },
 

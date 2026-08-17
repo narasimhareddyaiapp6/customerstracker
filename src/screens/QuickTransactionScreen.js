@@ -70,7 +70,7 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
 
       setLoading(true);
       try {
-        const userType = userProfile?.user_type || user?.user_type;
+        const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
         const fetchedAreas = await fetchAreasForUser({ userId, userType });
         setAllAreas(fetchedAreas || []);
       } catch (error) {

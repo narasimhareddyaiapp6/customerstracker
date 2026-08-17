@@ -58,7 +58,7 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
 
     setLoading(true);
     try {
-      const userType = userProfile?.user_type || user?.user_type;
+      const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
       const fetchedAreas = await fetchAreasForUser({ userId, userType });
       setAllAreas(fetchedAreas || []);
     } catch (error) {
@@ -259,61 +259,43 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
   
 
       const accessibleAreaIds = accessibleAreas.map(area => area.id);
+      const normalizedRole = userProfile?.user_type ? String(userProfile.user_type).trim().toLowerCase() : 'user';
+      const isAdmin = ['superadmin', 'admin', 'super_admin', 'owner'].includes(normalizedRole);
 
-  
+      if (!isAdmin && accessibleAreaIds.length === 0) {
+        setUserExpenses([]);
+        setFilteredUserExpenses([]);
+        setTotalExpenses(0);
+        return;
+      }
 
       if (!await NetInfoService.isNetworkAvailable()) {
-
         const offlineExpenses = await OfflineStorageService.getOfflineExpenses();
-
         let allExpenses = [...offlineExpenses.map(e => ({...e, isOffline: true}))];
 
-  
-
         // Filter by accessible areas for regular users
-
-        if (userProfile?.user_type !== 'superadmin' && accessibleAreaIds.length > 0) {
-
+        if (!isAdmin) {
           allExpenses = allExpenses.filter(expense => accessibleAreaIds.includes(expense.area_id));
-
         }
 
-  
-
         if (selectedAreaId) {
-
           allExpenses = allExpenses.filter(expense => expense.area_id === selectedAreaId);
-
         }
 
         console.log('fetchUserExpenses (offline): allExpenses after filtering:', allExpenses);
-
         setUserExpenses(allExpenses);
-
         setFilteredUserExpenses(allExpenses);
-
         const total = allExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-
         setTotalExpenses(total);
-
       } else {
-
         try {
-
-                  let query = supabase
-
-                    .from('user_expenses')
-
-                    .select('*, area_master(area_name)'); // Removed .eq('user_id', user.id);
-
-  
+          let query = supabase
+            .from('user_expenses')
+            .select('*, area_master(area_name)');
 
           // Filter by accessible areas for regular users
-
-          if (userProfile?.user_type !== 'superadmin' && accessibleAreaIds.length > 0) {
-
+          if (!isAdmin) {
             query = query.in('area_id', accessibleAreaIds);
-
           }
 
   

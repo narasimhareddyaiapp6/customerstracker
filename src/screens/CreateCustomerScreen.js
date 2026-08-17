@@ -224,7 +224,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     async function fetchAreas() {
       try {
         const userId = user?.id || userProfile?.id;
-        const userType = userProfile?.user_type || user?.user_type;
+        const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
         const areaList = await fetchAreasForUser({ userId, userType });
         setAreas(areaList || []);
       } catch (error) {
@@ -943,10 +943,12 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
     // Refresh areas if list is empty
     if (areas.length === 0) {
       const userId = user?.id || userProfile?.id;
-      const userType = userProfile?.user_type || user?.user_type;
+      const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
       fetchAreasForUser({ userId, userType }).then(areaList => {
         if (areaList && areaList.length > 0) {
           setAreas(areaList);
+        } else {
+          setAreas([]);
         }
       }).catch(err => console.error('Error refreshing areas on modal open:', err));
     }

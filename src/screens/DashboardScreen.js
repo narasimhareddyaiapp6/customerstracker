@@ -120,7 +120,7 @@ export default function DashboardScreen({ user, userProfile }) {
     async function fetchAreas() {
       try {
         const userId = user?.id || userProfile?.id;
-        const userType = userProfile?.user_type || user?.user_type;
+        const userType = userProfile?.user_type || user?.user_type || user?.user_metadata?.user_type;
         const areaList = await fetchAreasForUser({ userId, userType });
         setGroupAreas(areaList || []);
       } catch (error) {
