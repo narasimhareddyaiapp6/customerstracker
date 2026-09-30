@@ -54,7 +54,8 @@ export default {
         {
           "locationAlwaysPermission": "Allow User Tracking to use your location."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "updates": {
       "url": "https://u.expo.dev/22ad9b0d-c4e9-4bba-bad2-9e93641a6cb0"

@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Linking, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -14,6 +14,10 @@ import GlobalChatAndPresence from './src/components/GlobalChatAndPresence';
 import * as Notifications from 'expo-notifications';
 import { registerForPushNotificationsAsync } from './src/services/notificationService';
 import SecureStoreAdapter from './src/services/SecureStoreAdapter';
+
+// Theme Context & Auth Helper
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { ensureUserProfileExists } from './src/services/googleAuthService';
 
 // Inject font-face for web icons
 if (Platform.OS === 'web') {
@@ -65,15 +69,19 @@ import { OfflineStorageService } from './src/services/OfflineStorageService';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-
 // ---------------- News Tab Navigator ----------------
 function NewsTabs() {
+  const { colors } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={{
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#8E8E93',
-        tabBarStyle: { backgroundColor: '#FFFFFF' },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: {
+          backgroundColor: colors.tabBarBackground || colors.card,
+          borderTopColor: colors.border,
+        },
       }}
     >
       <Tab.Screen
@@ -118,17 +126,18 @@ function NewsTabs() {
 // ---------------- Tab Navigator ----------------
 
 function TabNavigator({ route }) {
-  const { user, userProfile, handleLogout } = route.params || {};
-  const isAdmin = userProfile?.user_type === 'admin' || userProfile?.user_type === 'superadmin';
-  const isCustomer = userProfile?.user_type === 'customer';
-  const isUser = userProfile?.user_type === 'user';
+  const { user, userProfile, handleLogout, reloadUserProfile } = route.params || {};
+  const { colors } = useTheme();
 
   return (
     <Tab.Navigator
       screenOptions={{
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#8E8E93',
-        tabBarStyle: { backgroundColor: '#FFFFFF' },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: {
+          backgroundColor: colors.tabBarBackground || colors.card,
+          borderTopColor: colors.border,
+        },
       }}
     >
       <Tab.Screen
@@ -164,15 +173,23 @@ function TabNavigator({ route }) {
           tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: size }}>👤</Text>,
         }}
       >
-        {(props) => <ProfileScreen {...props} user={user} userProfile={userProfile} onLogout={handleLogout} />}
+        {(props) => (
+          <ProfileScreen
+            {...props}
+            user={user}
+            userProfile={userProfile}
+            onLogout={handleLogout}
+            reloadUserProfile={reloadUserProfile}
+          />
+        )}
       </Tab.Screen>
     </Tab.Navigator>
   );
 }
 
-
-// ---------------- App ----------------
-export default function App() {
+// ---------------- Main App Component ----------------
+function MainApp() {
+  const { colors, isDark } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
   const [session, setSession] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -186,7 +203,7 @@ export default function App() {
 
   const memoizedCollaboration = useMemo(() => {
     if (!user) return null;
-    return <RealtimeCollaboration user={user} userProfile={userProfile} />
+    return <RealtimeCollaboration user={user} userProfile={userProfile} />;
   }, [user, userProfile]);
 
   // 🔔 Push notifications
@@ -206,27 +223,29 @@ export default function App() {
   // ---------------- Initialization ----------------
   useEffect(() => {
     const initializeApp = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       setSession(session);
       if (session) {
-        await loadUserProfile(session.user.id);
+        await ensureUserProfileExists(session.user);
+        await loadUserProfile(session.user.id, session.user);
       }
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (_event, session) => {
-          console.log('onAuthStateChange event:', _event);
-          console.log('onAuthStateChange session:', session);
-          if (session) {
-            setSession(session);
-            if (session.user.id !== userProfile?.id) {
-              await loadUserProfile(session.user.id);
-            }
-          } else {
-            setSession(null);
-            setUserProfile(null);
-          }
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+        console.log('onAuthStateChange event:', _event);
+        console.log('onAuthStateChange session:', newSession);
+        if (newSession) {
+          setSession(newSession);
+          await ensureUserProfileExists(newSession.user);
+          await loadUserProfile(newSession.user.id, newSession.user);
+        } else {
+          setSession(null);
+          setUserProfile(null);
         }
-      );
+      });
 
       setIsLoading(false);
 
@@ -234,8 +253,6 @@ export default function App() {
     };
     initializeApp();
   }, []);
-
-
 
   // 📍 Location tracking
   useEffect(() => {
@@ -250,8 +267,11 @@ export default function App() {
     }
   }, [isAuthenticated, user?.id, userProfile?.location_status]);
 
-  const loadUserProfile = async (userId) => {
-    const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+  const loadUserProfile = async (userId, authUser = null) => {
+    let { data } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+    if (!data && (authUser || user)) {
+      data = await ensureUserProfileExists(authUser || user);
+    }
     if (data) {
       // Save for background task
       await OfflineStorageService.saveUserId(data.id);
@@ -285,7 +305,7 @@ export default function App() {
           return [];
         }
 
-        const groupIds = userGroupLinks.map(link => link.group_id);
+        const groupIds = userGroupLinks.map((link) => link.group_id);
         const { data: groupDetails, error: groupDetailsError } = await supabase
           .from('groups')
           .select('id, name')
@@ -304,9 +324,10 @@ export default function App() {
   };
 
   const handleAuthSuccess = async (sessionData) => {
-    console.log('handleAuthSuccess: sessionData:', sessionData); // Log sessionData here
+    console.log('handleAuthSuccess: sessionData:', sessionData);
     setSession(sessionData);
-    await loadUserProfile(sessionData.user.id);
+    await ensureUserProfileExists(sessionData.user);
+    await loadUserProfile(sessionData.user.id, sessionData.user);
   };
 
   const handleLogout = async () => {
@@ -328,14 +349,21 @@ export default function App() {
     return {
       headerShown: true,
       headerTitle: () => null,
+      headerStyle: {
+        backgroundColor: colors.card,
+        elevation: 0,
+        shadowOpacity: 0.05,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      },
       headerLeft: () => {
         return (
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {userProfile?.profile_photo_data ? (
               <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-                <Image 
-                  source={{ uri: userProfile.profile_photo_data }} 
-                  style={{ width: 30, height: 30, borderRadius: 15, marginLeft: 15 }} 
+                <Image
+                  source={{ uri: userProfile.profile_photo_data }}
+                  style={{ width: 30, height: 30, borderRadius: 15, marginLeft: 15 }}
                 />
               </TouchableOpacity>
             ) : null}
@@ -344,40 +372,60 @@ export default function App() {
       },
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 15 }}>
-          <TouchableOpacity onPress={() => setShowRealtimeCollaboration(prev => !prev)} style={{ marginRight: 12 }}>
-            <MaterialIcons name={showRealtimeCollaboration ? "edit" : "edit-off"} size={22} color="#007AFF" />
+          <TouchableOpacity onPress={() => setShowRealtimeCollaboration((prev) => !prev)} style={{ marginRight: 12 }}>
+            <MaterialIcons
+              name={showRealtimeCollaboration ? 'edit' : 'edit-off'}
+              size={22}
+              color={colors.primary}
+            />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowGlobalChat(prev => !prev)} style={{ marginRight: 12 }}>
-            <MaterialIcons name={showGlobalChat ? "chat-bubble" : "chat-bubble-outline"} size={22} color="#007AFF" />
+          <TouchableOpacity onPress={() => setShowGlobalChat((prev) => !prev)} style={{ marginRight: 12 }}>
+            <MaterialIcons
+              name={showGlobalChat ? 'chat-bubble' : 'chat-bubble-outline'}
+              size={22}
+              color={colors.primary}
+            />
           </TouchableOpacity>
-          
-          <QuickTransactionButton 
+
+          <QuickTransactionButton
             style={{ marginRight: 12 }}
-            onPress={() => navigation.navigate('QuickTransaction')} 
+            onPress={() => navigation.navigate('QuickTransaction')}
           />
           <TouchableOpacity onPress={() => navigation.navigate('Expenses')} style={{ marginRight: 12 }}>
-            <MaterialIcons name="receipt-long" size={22} color="#007AFF" />
+            <MaterialIcons name="receipt-long" size={22} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowCalculatorModal(true)}>
-            <Icon name="calculator" size={19} color="#007AFF" />
+            <Icon name="calculator" size={19} color={colors.primary} />
           </TouchableOpacity>
         </View>
       ),
-    }
+    };
+  };
+
+  const navTheme = {
+    dark: isDark,
+    colors: {
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.card,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.primary,
+    },
   };
 
   // ---------------- Render ----------------
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={[styles.loadingText, { color: colors.text }]}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="auto" />
+    <NavigationContainer theme={navTheme}>
+      <StatusBar style={colors.statusBarStyle} />
       <Stack.Navigator>
         {!isAuthenticated ? (
           <>
@@ -395,7 +443,17 @@ export default function App() {
               options={({ navigation }) => renderHeader({ navigation })}
             >
               {(props) => (
-                <TabNavigator {...props} route={{ params: { user, userProfile, handleLogout } }} />
+                <TabNavigator
+                  {...props}
+                  route={{
+                    params: {
+                      user,
+                      userProfile,
+                      handleLogout,
+                      reloadUserProfile: () => user?.id && loadUserProfile(user.id, user),
+                    },
+                  }}
+                />
               )}
             </Stack.Screen>
             <Stack.Screen name="Expenses">
@@ -432,16 +490,22 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <ThemeProvider>
+      <MainApp />
+    </ThemeProvider>
+  );
+}
+
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
   },
   loadingText: {
     fontSize: 18,
-    color: '#333333',
     fontWeight: '500',
   },
 });

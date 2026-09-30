@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import SecureStoreAdapter from './SecureStoreAdapter';
 
 const SUPABASE_URL =
@@ -32,7 +33,7 @@ export const supabase = createClient(
       storage: SecureStoreAdapter,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      detectSessionInUrl: Platform.OS === 'web',
     },
   }
 );

@@ -27,6 +27,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import CustomerMapModal from '../components/CustomerMapModal';
 import { locationTracker } from '../services/locationTracker';
+import { useTheme, THEME_MODES } from '../context/ThemeContext';
 
 // Utility function to convert BYTEA hex to base64
 function hexToBase64(hexString) {
@@ -36,7 +37,36 @@ function hexToBase64(hexString) {
   return Buffer.from(hex, 'hex').toString('base64');
 }
 
+const THEME_CHOICES = [
+  {
+    mode: THEME_MODES.SYSTEM,
+    icon: '⚙️',
+    label: 'System Default',
+    description: 'Matches your device display settings',
+  },
+  {
+    mode: THEME_MODES.LIGHT,
+    icon: '☀️',
+    label: 'Light Mode',
+    description: 'Clean, high-contrast bright theme',
+  },
+  {
+    mode: THEME_MODES.DARK,
+    icon: '🌙',
+    label: 'Dark Mode',
+    description: 'Deep dark theme, comfortable in low light',
+  },
+  {
+    mode: THEME_MODES.OCEAN,
+    icon: '🌊',
+    label: 'Ocean Blue',
+    description: 'Vibrant midnight navy palette',
+  },
+];
+
 export default function ProfileScreen({ navigation, user, userProfile, reloadUserProfile, onLogout }) {
+  const { themeMode, setThemeMode, colors, isDark } = useTheme();
+
   // Debug log to check if component is mounting properly
   console.log('ProfileScreen mounted with props:', { 
     hasNavigation: !!navigation, 
@@ -461,11 +491,11 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       
       {/* Profile Image Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile Picture</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Profile Picture</Text>
         <View style={styles.profileImageContainer}>
           {profileImage && (
             <TouchableOpacity onPress={() => setShowImageModal(true)}>
@@ -477,17 +507,17 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
             </TouchableOpacity>
           )}
           {!profileImage && (
-            <View style={styles.profileImagePlaceholder}>
+            <View style={[styles.profileImagePlaceholder, { backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA' }]}>
               <Text style={styles.profileImageText}>👤</Text>
             </View>
           )}
           <View style={{ flexDirection: 'row', marginTop: 10 }}>
-            <TouchableOpacity style={styles.changeImageButton} onPress={pickImage}>
+            <TouchableOpacity style={[styles.changeImageButton, { backgroundColor: colors.primary }]} onPress={pickImage}>
               <Text style={styles.changeImageText}>{profileImage ? 'Change Photo' : 'Upload Photo'}</Text>
             </TouchableOpacity>
             {profileImage && (
               <TouchableOpacity
-                style={[styles.changeImageButton, { backgroundColor: '#FF3B30', borderColor: '#FF3B30', marginLeft: 10 }]}
+                style={[styles.changeImageButton, { backgroundColor: colors.danger, borderColor: colors.danger, marginLeft: 10 }]}
                 onPress={handleDeleteProfileImage}
               >
                 <Text style={[styles.changeImageText, { color: '#FFF' }]}>Delete Photo</Text>
@@ -499,33 +529,33 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
 
       {/* User Info Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>User Information</Text>
-        <View style={styles.userInfoCard}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>User Information</Text>
+        <View style={[styles.userInfoCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Name:</Text>
-            <Text style={styles.infoValue}>{userProfile?.name || 'Not set'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Name:</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userProfile?.name || 'Not set'}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Email:</Text>
-            <Text style={styles.infoValue}>{userProfile?.email || user?.email || 'Loading...'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Email:</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userProfile?.email || user?.email || 'Loading...'}</Text>
           </View>
           {userProfile?.mobile && ( // Conditionally render if mobile exists
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Mobile:</Text>
-              <Text style={styles.infoValue}>{userProfile.mobile}</Text>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Mobile:</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>{userProfile.mobile}</Text>
             </View>
           )}
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>User ID:</Text>
-            <Text style={styles.infoValue}>{userProfile?.id || user?.id || 'Loading...'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>User ID:</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userProfile?.id || user?.id || 'Loading...'}</Text>
           </View>
         </View>
       </View>
 
       {/* Profile Location & Tracking Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile Location & Tracking</Text>
-        <View style={styles.userInfoCard}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Profile Location & Tracking</Text>
+        <View style={[styles.userInfoCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           {/* Location Status Card */}
           <View style={{
             backgroundColor: (userLocation.latitude != null && userLocation.longitude != null && !isNaN(parseFloat(userLocation.latitude)) && parseFloat(userLocation.latitude) !== 0) ? '#E8F5E9' : '#FFF9C4',
@@ -648,17 +678,70 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
         </View>
       </View>
 
+      {/* Appearance & Theme Selection Section */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance & Theme</Text>
+        <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+          <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 14 }}>
+            Choose how Customers Tracker looks on your device:
+          </Text>
+          <View style={styles.themeOptionsGrid}>
+            {THEME_CHOICES.map((choice) => {
+              const isSelected = themeMode === choice.mode;
+              return (
+                <TouchableOpacity
+                  key={choice.mode}
+                  style={[
+                    styles.themeOptionCard,
+                    {
+                      borderColor: isSelected ? colors.primary : colors.border,
+                      backgroundColor: isSelected
+                        ? colors.primaryLight
+                        : (isDark ? '#252529' : '#F9F9FB'),
+                    },
+                  ]}
+                  onPress={() => setThemeMode(choice.mode)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.themeOptionHeader}>
+                    <Text style={{ fontSize: 22, marginRight: 10 }}>{choice.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.themeOptionTitle,
+                          { color: isSelected ? colors.primary : colors.text },
+                        ]}
+                      >
+                        {choice.label}
+                      </Text>
+                      <Text style={[styles.themeOptionDesc, { color: colors.textSecondary }]}>
+                        {choice.description}
+                      </Text>
+                    </View>
+                    <MaterialIcons
+                      name={isSelected ? 'radio-button-checked' : 'radio-button-unchecked'}
+                      size={22}
+                      color={isSelected ? colors.primary : colors.textSecondary}
+                    />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+
       {/* Settings Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Settings</Text>
-        <View style={styles.settingsCard}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Settings</Text>
+        <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Push Notifications</Text>
+            <Text style={[styles.settingLabel, { color: colors.text }]}>Push Notifications</Text>
             <Switch
               value={settings.notifications}
               onValueChange={() => handleSettingToggle('notifications')}
-              trackColor={{ false: '#E5E5EA', true: '#007AFF' }}
-              thumbColor={settings.notifications ? '#FFFFFF' : '#FFFFFF'}
+              trackColor={{ false: isDark ? '#3A3A3C' : '#E5E5EA', true: colors.primary }}
+              thumbColor="#FFFFFF"
             />
           </View>
           
@@ -683,10 +766,8 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
 
       {/* Actions Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Actions</Text>
-        <View style={styles.actionsCard}>
-          
-          
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Actions</Text>
+        <View style={[styles.actionsCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           <TouchableOpacity style={[styles.actionButton, styles.logoutButton]} onPress={handleLogout}>
             <Text style={styles.actionButtonText}>Logout</Text>
           </TouchableOpacity>
@@ -699,21 +780,23 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
 
       {/* Test Notification Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Test Notifications</Text>
-        <View style={styles.settingsCard}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Test Notifications</Text>
+        <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
             placeholder="Notification Title"
+            placeholderTextColor={colors.placeholder}
             value={notificationTitle}
             onChangeText={setNotificationTitle}
           />
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
             placeholder="Notification Message"
+            placeholderTextColor={colors.placeholder}
             value={notificationMessage}
             onChangeText={setNotificationMessage}
           />
-          <TouchableOpacity style={styles.actionButton} onPress={handleSendTestNotification}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={handleSendTestNotification}>
             <Text style={styles.actionButtonText}>Send Test Notification</Text>
           </TouchableOpacity>
         </View>
@@ -936,5 +1019,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  themeOptionsGrid: {
+    gap: 10,
+  },
+  themeOptionCard: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 14,
+  },
+  themeOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  themeOptionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  themeOptionDesc: {
+    fontSize: 12,
   },
 });

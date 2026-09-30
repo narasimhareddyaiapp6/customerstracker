@@ -80,6 +80,14 @@ if (fs.existsSync(distPath)) {
     });
   }
 
+  // Copy policy.html to dist if it exists
+  const policySrc = path.join(__dirname, 'policy.html');
+  const policyDest = path.join(distPath, 'policy.html');
+  if (fs.existsSync(policySrc)) {
+    fs.copyFileSync(policySrc, policyDest);
+    console.log('Copied policy.html to dist/policy.html');
+  }
+
   console.log('Successfully fixed paths for GitHub Pages deployment');
 } else {
   console.error('dist directory not found. Please run "npx expo export --platform web" first.');

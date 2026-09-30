@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,18 +10,93 @@ import {
   Platform,
   ScrollView,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { supabase } from '../services/supabaseClient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerForPushNotificationsAsync } from '../services/notificationService';
-
-
+import { signInWithGoogleOAuth } from '../services/googleAuthService';
+import GoogleIcon from '../components/GoogleIcon';
+import { useTheme } from '../context/ThemeContext';
+import { MaterialIcons } from '@expo/vector-icons';
 
 export default function LoginScreen({ navigation, route, onAuthSuccess }) {
+  const { colors, isDark } = useTheme();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [biometricsEmail, setBiometricsEmail] = useState('');
+
+  // Check biometric support on mount
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      try {
+        if (Platform.OS === 'web') return;
+        const enabled = await AsyncStorage.getItem('BIOMETRICS_ENABLED');
+        const savedEmail = await AsyncStorage.getItem('BIOMETRICS_EMAIL');
+        if (enabled === 'true' && savedEmail) {
+          const compatible = await LocalAuthentication.hasHardwareAsync();
+          const enrolled = await LocalAuthentication.isEnrolledAsync();
+          if (compatible && enrolled) {
+            setHasBiometrics(true);
+            setBiometricsEmail(savedEmail);
+            setEmail(savedEmail);
+          }
+        }
+      } catch (err) {
+        console.warn('Error checking biometrics:', err);
+      }
+    };
+    checkBiometrics();
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    try {
+      const result = await signInWithGoogleOAuth();
+      if (result.type === 'cancelled') {
+        setGoogleLoading(false);
+        return;
+      }
+      if (result.type === 'success' && result.session) {
+        console.log('Google login successful, session created:', result.session);
+        if (onAuthSuccess) {
+          onAuthSuccess(result.session, navigation);
+        }
+        try {
+          await registerForPushNotificationsAsync(result.session.user);
+        } catch (e) {
+          console.error('Push notification registration error:', e);
+        }
+      }
+    } catch (error) {
+      console.error('Google Sign-in error:', error);
+      Alert.alert(
+        'Google Sign-In Error',
+        error?.message || 'Failed to authenticate with Google. Make sure Google provider is configured in Supabase.'
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleBiometricAuth = async () => {
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to log in',
+        fallbackLabel: 'Use password',
+      });
+      if (result.success && biometricsEmail) {
+        Alert.alert('Biometric Login', `Authenticated for ${biometricsEmail}. Please enter password to restore session.`);
+      }
+    } catch (err) {
+      console.error('Biometric authentication error:', err);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -54,15 +129,13 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
         Alert.alert('Login Error', error.message);
       } else if (data.session) {
         console.log('Login successful, session created:', data.session);
-        
-        // Call the auth success callback with the entire session object
+
         if (onAuthSuccess) {
           onAuthSuccess(data.session, navigation);
         }
 
-        // Register for push notifications and save token
         try {
-          const pushToken = await registerForPushNotificationsAsync(data.user); // Pass the user object
+          const pushToken = await registerForPushNotificationsAsync(data.user);
           if (pushToken) {
             console.log('Push Token obtained:', pushToken);
           }
@@ -70,7 +143,6 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
           console.error('Error during push notification registration:', e);
         }
 
-        // After successful login, ask to enable biometrics
         if (Platform.OS !== 'web') {
           await promptForBiometrics(data.user.email);
         }
@@ -87,29 +159,18 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
 
   const promptForBiometrics = async (userEmail) => {
     try {
-      // Check if biometrics already enabled or declined
       const biometricsEnabled = await AsyncStorage.getItem('BIOMETRICS_ENABLED');
       const biometricsDeclined = await AsyncStorage.getItem('BIOMETRICS_DECLINED');
 
       if (biometricsEnabled === 'true' || biometricsDeclined === 'true') {
-        console.log('Biometrics preference already set. Skipping prompt.');
         return;
       }
 
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      if (!hasHardware) {
-        console.log('Biometric hardware not available.');
-        return;
-      }
+      if (!hasHardware) return;
 
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!isEnrolled) {
-        Alert.alert(
-          'No Biometrics Enrolled',
-          'You have not enrolled any fingerprints or Face ID on this device.'
-        );
-        return;
-      }
+      if (!isEnrolled) return;
 
       Alert.alert(
         'Enable Biometric Login',
@@ -119,7 +180,6 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
             text: 'No',
             style: 'cancel',
             onPress: async () => {
-              console.log('Biometrics setup declined');
               await AsyncStorage.setItem('BIOMETRICS_DECLINED', 'true');
             },
           },
@@ -129,14 +189,10 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
               try {
                 await AsyncStorage.setItem('BIOMETRICS_ENABLED', 'true');
                 await AsyncStorage.setItem('BIOMETRICS_EMAIL', userEmail);
-                await AsyncStorage.removeItem('BIOMETRICS_DECLINED'); // Remove declined flag if user enables
-                Alert.alert(
-                  'Biometrics Enabled',
-                  'You can now use your fingerprint or Face ID to log in.'
-                );
+                await AsyncStorage.removeItem('BIOMETRICS_DECLINED');
+                Alert.alert('Biometrics Enabled', 'You can now use fingerprint or Face ID.');
               } catch (e) {
                 console.error('Error saving biometric preference:', e);
-                Alert.alert('Error', 'Could not save your biometric preference.');
               }
             },
           },
@@ -153,87 +209,174 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
       return;
     }
 
-    supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'user-tracking-mobile://reset-password',
-    }).then(() => {
-      Alert.alert('Success', 'Password reset email sent');
-    }).catch((error) => {
-      Alert.alert('Error', error.message);
-    });
+    supabase.auth
+      .resetPasswordForEmail(email, {
+        redirectTo: 'usertracking://reset-password',
+      })
+      .then(() => {
+        Alert.alert('Success', 'Password reset email sent');
+      })
+      .catch((error) => {
+        Alert.alert('Error', error.message);
+      });
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.icon}>📍</Text>
-          <Text style={styles.title}>Customers Tracker</Text>
-          <Text style={styles.subtitle}>Sign in to track your location</Text>
+          <Text style={[styles.title, { color: colors.primary }]}>Customers Tracker</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Sign in to track your location & manage customers
+          </Text>
         </View>
 
-        <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {/* Required Google Sign-In Section */}
+          <View style={styles.googleSection}>
+            <View style={[styles.badge, { backgroundColor: colors.primaryLight }]}>
+              <MaterialIcons name="security" size={13} color={colors.primary} style={{ marginRight: 4 }} />
+              <Text style={[styles.badgeText, { color: colors.primary }]}>REQUIRED / RECOMMENDED SIGN IN</Text>
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? 'Signing In...' : 'Sign In'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.forgotPassword}
-            onPress={handleForgotPassword}
-          >
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-              <Text style={styles.signupLink}>Sign Up</Text>
+            <TouchableOpacity
+              style={[
+                styles.googleButton,
+                {
+                  backgroundColor: isDark ? '#2C2C2E' : '#FFFFFF',
+                  borderColor: isDark ? '#3A3A3C' : '#DADCE0',
+                },
+                googleLoading && styles.buttonDisabled,
+              ]}
+              onPress={handleGoogleLogin}
+              disabled={googleLoading || loading}
+              activeOpacity={0.8}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <GoogleIcon size={22} style={styles.googleIcon} />
+                  <Text style={[styles.googleButtonText, { color: isDark ? '#FFFFFF' : '#3C4043' }]}>
+                    Sign in with Google
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
-          <View style={styles.downloadContainer}>
-            <Text style={styles.downloadText}>Android App: </Text>
-            <TouchableOpacity onPress={() => Linking.openURL('https://narasimhareddyaiapp6.github.io/customerstracker/releases/customerstracker.7z')}>
-              <Text style={styles.downloadLink}>Download .7z Build</Text>
+          {/* Divider */}
+          <View style={styles.dividerRow}>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[styles.dividerText, { color: colors.textSecondary }]}>OR SIGN IN WITH EMAIL</Text>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          </View>
+
+          {/* Form */}
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.text }]}>Email</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
+                    borderColor: colors.border,
+                    color: colors.text,
+                  },
+                ]}
+                placeholder="Enter your email"
+                placeholderTextColor={colors.placeholder}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.text }]}>Password</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
+                    borderColor: colors.border,
+                    color: colors.text,
+                  },
+                ]}
+                placeholder="Enter your password"
+                placeholderTextColor={colors.placeholder}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.primary }, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading || googleLoading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Sign In with Password</Text>
+              )}
             </TouchableOpacity>
+
+            {hasBiometrics && (
+              <TouchableOpacity
+                style={[
+                  styles.biometricButton,
+                  { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+                ]}
+                onPress={handleBiometricAuth}
+              >
+                <MaterialIcons name="fingerprint" size={20} color={colors.primary} style={{ marginRight: 8 }} />
+                <Text style={[styles.biometricButtonText, { color: colors.primary }]}>
+                  Biometric Login Available
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={styles.forgotPassword} onPress={handleForgotPassword}>
+              <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            <View style={styles.signupContainer}>
+              <Text style={[styles.signupText, { color: colors.textSecondary }]}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+                <Text style={[styles.signupLink, { color: colors.primary }]}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.downloadContainer}>
+              <Text style={[styles.downloadText, { color: colors.textSecondary }]}>Android App: </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL(
+                    'https://narasimhareddyaiapp6.github.io/customerstracker/releases/customerstracker.7z'
+                  )
+                }
+              >
+                <Text style={[styles.downloadLink, { color: colors.success }]}>Download .7z Build</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ScrollView>
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>© 2025 localwala's. Version 1.0</Text>
+
+      <View style={[styles.footer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+        <Text style={[styles.footerText, { color: colors.textSecondary }]}>
+          © 2025 localwala's. Version 1.0
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -242,112 +385,178 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
+    paddingVertical: 36,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 24,
   },
   icon: {
-    fontSize: 48,
-    marginBottom: 16,
+    fontSize: 44,
+    marginBottom: 12,
   },
   title: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 8,
+    marginBottom: 6,
+    textAlign: 'center',
   },
   subtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  card: {
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  googleSection: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  googleIcon: {
+    marginRight: 12,
+  },
+  googleButtonText: {
     fontSize: 16,
-    color: '#8E8E93',
+    fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
   form: {
     width: '100%',
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   label: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#1C1C1E',
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E5E5EA',
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
     fontSize: 16,
-    backgroundColor: '#F2F2F7',
   },
   button: {
-    backgroundColor: '#007AFF',
     borderRadius: 12,
-    padding: 16,
+    padding: 15,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 8,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+  },
+  biometricButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   buttonDisabled: {
-    backgroundColor: '#C7C7CC',
+    opacity: 0.6,
   },
   buttonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
   },
   forgotPassword: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
   forgotPasswordText: {
-    color: '#007AFF',
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '500',
   },
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 40,
+    marginTop: 24,
   },
   signupText: {
-    fontSize: 16,
-    color: '#8E8E93',
+    fontSize: 15,
   },
   signupLink: {
-    fontSize: 16,
-    color: '#007AFF',
+    fontSize: 15,
     fontWeight: '600',
   },
   downloadContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
   downloadText: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 13,
   },
   downloadLink: {
-    fontSize: 14,
-    color: '#34C759',
+    fontSize: 13,
     fontWeight: '600',
     textDecorationLine: 'underline',
   },
   footer: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5EA',
-    backgroundColor: '#F2F2F7',
   },
   footerText: {
     fontSize: 12,
-    color: '#8E8E93',
   },
 });
