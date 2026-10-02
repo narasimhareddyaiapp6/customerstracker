@@ -19,6 +19,8 @@ import { v4 as uuidv4 } from 'uuid';
 import AreaSearchBar from '../components/AreaSearchBar';
 import { debounce } from 'lodash';
 import { fetchAreasForUser, getDayName, getCurrentTime } from '../services/AreaService';
+import { triggerNotification } from '../services/notificationService';
+
 
 export default function UserExpensesScreen({ navigation, user, userProfile }) {
   // User Expenses State
@@ -104,13 +106,22 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
 
           try {
 
-            const { error } = await supabase.from('user_expenses').insert(expense);
+            const { data: insertedExpense, error } = await supabase.from('user_expenses').insert(expense).select().maybeSingle();
 
             if (error) {
 
               throw error;
 
             }
+
+            // Option A: Trigger notification directly for synced expense
+            triggerNotification({
+              record: {
+                ...(insertedExpense || expense),
+                area_id: expense.area_id,
+              },
+              table: 'user_expenses',
+            });
 
           } catch (error) {
 
@@ -212,7 +223,7 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
 
         try {
 
-          const { error } = await supabase.from('user_expenses').insert(expense);
+          const { data: insertedExpense, error } = await supabase.from('user_expenses').insert(expense).select().maybeSingle();
 
   
 
@@ -233,6 +244,15 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
             setExpenseRemarks('');
 
             fetchUserExpenses(); // Refresh the list
+
+            // Option A: Trigger notification directly for Area group Email users
+            triggerNotification({
+              record: {
+                ...(insertedExpense || expense),
+                area_id: selectedAreaId,
+              },
+              table: 'user_expenses',
+            });
 
           }
 

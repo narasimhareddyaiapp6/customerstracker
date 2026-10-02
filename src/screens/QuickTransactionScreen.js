@@ -25,6 +25,8 @@ import { v4 as uuidv4 } from 'uuid';
 import AreaSearchBar from '../components/AreaSearchBar';
 import { fetchAreasForUser, getDayName, getCurrentTime } from '../services/AreaService';
 import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
+import { triggerNotification } from '../services/notificationService';
+
 
 export default function QuickTransactionScreen({ navigation, user, userProfile, route }) {
   // console.log('QuickTransactionScreen: user prop:', user);
@@ -125,14 +127,24 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
 
           // Remove the temporary id used for offline storage before syncing to Supabase
           const { id, upi_image, book_no, ...transactionToSync } = transaction;
-          const { error } = await supabase.from('transactions').insert({
+          const txPayload = {
             ...transactionToSync,
             upi_image: finalUpiImage,
             book_no: book_no, // Include book_no
-          });
+          };
+          const { data: insertedTx, error } = await supabase.from('transactions').insert(txPayload).select().maybeSingle();
           if (error) {
             throw error;
           }
+
+          // Option A: Trigger notification directly for synced transaction
+          triggerNotification({
+            record: {
+              ...(insertedTx || txPayload),
+              area_id: transaction.area_id,
+            },
+            table: 'transactions',
+          });
         } catch (error) {
           // console.error('Error syncing offline quick transaction:', error);
           Alert.alert('Error', 'Failed to sync some quick transactions. Please try again later.');
@@ -504,9 +516,11 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
     } else {
       try {
         const { id, ...transactionToSync } = transaction;
-        const { error } = await supabase
+        const { data: insertedTx, error } = await supabase
           .from('transactions')
-          .insert(transactionToSync);
+          .insert(transactionToSync)
+          .select()
+          .maybeSingle();
 
         if (error) {
           Alert.alert('Error', 'Failed: ' + error.message);
@@ -517,6 +531,15 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
           setPaymentProofImage(null);
           fetchTransactions(selectedCustomer.id);
           handleCustomerSelect(selectedCustomer.id);
+
+          // Option A: Trigger notification directly for Area group Email users
+          triggerNotification({
+            record: {
+              ...(insertedTx || transactionToSync),
+              area_id: selectedAreaId,
+            },
+            table: 'transactions',
+          });
         }
       } catch (error) {
         Alert.alert('Error', 'Failed to add transaction.');

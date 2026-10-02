@@ -10,6 +10,8 @@ import { Buffer } from 'buffer';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { fetchAreasForUser } from '../services/AreaService';
 import { uploadImageToStorage } from '../services/StorageService';
+import { triggerNotification } from '../services/notificationService';
+
 
 export default function AddTransactionScreen({ user, userProfile, navigation }) {
   const [areas, setAreas] = useState([]);
@@ -143,7 +145,7 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
       }
     }
 
-    const { error } = await supabase.from('transactions').insert({
+    const txPayload = {
       customer_id: selectedCustomer,
       user_id: user.id,
       amount: amount,
@@ -151,12 +153,22 @@ export default function AddTransactionScreen({ user, userProfile, navigation }) 
       payment_mode: amountType,
       upi_image: upiImageUrl,
       transaction_date: transactionDate.toISOString().split('T')[0],
-    });
+    };
+
+    const { data: insertedTx, error } = await supabase.from('transactions').insert(txPayload).select().maybeSingle();
 
     if (error) {
       Alert.alert('Error', error.message);
     } else {
       Alert.alert('Success', 'Transaction added successfully!');
+      // Option A: Trigger notification directly for Area group Email users
+      triggerNotification({
+        record: {
+          ...(insertedTx || txPayload),
+          area_id: selectedArea,
+        },
+        table: 'transactions',
+      });
       navigation.goBack();
     }
 

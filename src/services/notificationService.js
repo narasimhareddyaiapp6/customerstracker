@@ -119,3 +119,38 @@ export async function registerForPushNotificationsAsync(user) {
     return null;
   }
 }
+
+/**
+ * Option A: Triggers the 'send-notification' Edge Function directly from the app.
+ * Sends push notifications to Area group Email users for the given record.
+ * 
+ * @param {Object} params
+ * @param {Object} params.record The record object (transaction, expense, customer)
+ * @param {string} params.table The table name ('transactions', 'user_expenses', 'customers')
+ */
+export async function triggerNotification({ record, table }) {
+  try {
+    if (!record || !table) {
+      console.warn('⚠️ triggerNotification: missing record or table');
+      return { success: false, error: 'Missing record or table' };
+    }
+
+    console.log(`🔔 Triggering notification for table '${table}'...`, record);
+
+    const { data, error } = await supabase.functions.invoke('send-notification', {
+      body: { record, table },
+    });
+
+    if (error) {
+      console.warn('⚠️ send-notification invocation error:', error);
+      return { success: false, error };
+    }
+
+    console.log('✅ Notification triggered successfully:', data);
+    return { success: true, data };
+  } catch (err) {
+    console.warn('⚠️ Exception invoking send-notification:', err);
+    return { success: false, error: err };
+  }
+}
+

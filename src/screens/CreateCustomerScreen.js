@@ -22,6 +22,8 @@ import CustomerMapModal from '../components/CustomerMapModal';
 import CalculatorModal from '../components/CalculatorModal';
 import { fetchAreasForUser } from '../services/AreaService';
 import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
+import { triggerNotification } from '../services/notificationService';
+
 
 const getDayName = () => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -636,7 +638,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         return;
       }
 
-      const { error } = await supabase.from('transactions').insert({
+      const txPayload = {
         customer_id: transactionCustomer.id,
         user_id: user.id,
         amount: newTransactionAmount,
@@ -647,7 +649,9 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         longitude: lon,
         payment_mode: newTransactionPaymentType,
         upi_image: newTransactionUPIImageUrl
-      });
+      };
+
+      const { data: insertedTx, error } = await supabase.from('transactions').insert(txPayload).select().maybeSingle();
 
       if (error) {
         Alert.alert('Error', error.message);
@@ -659,6 +663,15 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         setNewTransactionUPIImageUrl('');
         fetchTransactions(transactionCustomer.id);
         Alert.alert('Success', 'Transaction added successfully!');
+
+        // Option A: Trigger notification directly for Area group Email users
+        triggerNotification({
+          record: {
+            ...(insertedTx || txPayload),
+            area_id: transactionCustomer.area_id,
+          },
+          table: 'transactions',
+        });
       }
     } catch (error) {
       console.error('Error adding transaction:', error);
@@ -1717,9 +1730,13 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
       setLateFee('');
       setSelectedPlanId('');
       setStartDate('');
-      setEndDate('');
-      
       Alert.alert('Success', 'Customer created successfully!');
+
+      // Option A: Trigger notification directly for Area group Email users
+      triggerNotification({
+        record: insertedData,
+        table: 'customers',
+      });
       setShowCustomerFormModal(false);
       
       // Refresh customer list with current filters
