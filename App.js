@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Platform, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -150,6 +150,32 @@ function TabNavigator({ route }) {
       </Tab.Screen>
 
       <Tab.Screen
+        name="QuickTransaction"
+        options={{
+          headerShown: false,
+          tabBarLabel: 'Quick Trans',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="flash-on" size={size || 22} color={color} />
+          ),
+        }}
+      >
+        {(props) => <QuickTransactionScreen {...props} user={user} userProfile={userProfile} />}
+      </Tab.Screen>
+
+      <Tab.Screen
+        name="Expenses"
+        options={{
+          headerShown: false,
+          tabBarLabel: 'Expenses',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="receipt-long" size={size || 22} color={color} />
+          ),
+        }}
+      >
+        {(props) => <UserExpensesScreen {...props} user={user} userProfile={userProfile} />}
+      </Tab.Screen>
+
+      <Tab.Screen
         name="Customers"
         options={{
           tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: size }}>👥</Text>,
@@ -247,9 +273,49 @@ function MainApp() {
         }
       });
 
+      // Deep linking handler for OAuth (Android/iOS)
+      const handleAuthDeepLink = async (url) => {
+        if (!url || (!url.includes('auth/callback') && !url.includes('customerstracker'))) return;
+        console.log('🔗 Received auth deep link:', url);
+        try {
+          const params = {};
+          const [baseAndQuery, hash] = url.split('#');
+          const query = baseAndQuery.split('?')[1];
+          if (query) {
+            query.split('&').forEach((part) => {
+              const [k, v] = part.split('=');
+              if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+            });
+          }
+          if (hash) {
+            hash.split('&').forEach((part) => {
+              const [k, v] = part.split('=');
+              if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+            });
+          }
+
+          if (params.access_token && params.refresh_token) {
+            await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token,
+            });
+          } else if (params.code) {
+            await supabase.auth.exchangeCodeForSession(params.code);
+          }
+        } catch (err) {
+          console.error('Error handling auth deep link:', err);
+        }
+      };
+
+      Linking.getInitialURL().then(handleAuthDeepLink);
+      const linkingSub = Linking.addEventListener('url', ({ url }) => handleAuthDeepLink(url));
+
       setIsLoading(false);
 
-      return () => subscription.unsubscribe();
+      return () => {
+        subscription.unsubscribe();
+        linkingSub.remove();
+      };
     };
     initializeApp();
   }, []);
@@ -455,13 +521,6 @@ function MainApp() {
                   }}
                 />
               )}
-            </Stack.Screen>
-            <Stack.Screen name="Expenses">
-              {(props) => <UserExpensesScreen {...props} user={user} userProfile={userProfile} />}
-            </Stack.Screen>
-
-            <Stack.Screen name="QuickTransaction">
-              {(props) => <QuickTransactionScreen {...props} user={user} userProfile={userProfile} />}
             </Stack.Screen>
           </>
         )}

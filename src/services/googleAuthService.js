@@ -82,7 +82,7 @@ export async function signInWithGoogleOAuth() {
 
     // Native Mobile (Android / iOS)
     const redirectUri = makeRedirectUri({
-      scheme: 'usertracking',
+      scheme: 'customerstracker',
       path: 'auth/callback',
     });
 
@@ -106,29 +106,39 @@ export async function signInWithGoogleOAuth() {
 
     const authResult = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
 
-    if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
-      return { type: 'cancelled' };
-    }
+    let authUrl = null;
 
     if (authResult.type === 'success' && authResult.url) {
-      const url = authResult.url;
-      const hashIndex = url.indexOf('#');
-      const queryIndex = url.indexOf('?');
-
-      let paramString = '';
-      if (hashIndex !== -1) {
-        paramString = url.substring(hashIndex + 1);
-      } else if (queryIndex !== -1) {
-        paramString = url.substring(queryIndex + 1);
+      authUrl = authResult.url;
+    } else {
+      // On some Android devices, the Custom Tab dismisses when the deep link activates.
+      // Check if session was already established or wait briefly
+      const { data: currentSession } = await supabase.auth.getSession();
+      if (currentSession?.session) {
+        await ensureUserProfileExists(currentSession.session.user);
+        return { type: 'success', session: currentSession.session };
       }
+      if (authResult.type === 'cancel') {
+        return { type: 'cancelled' };
+      }
+    }
 
+    if (authUrl) {
       const params = {};
-      paramString.split('&').forEach((part) => {
-        const [k, v] = part.split('=');
-        if (k && v) {
-          params[decodeURIComponent(k)] = decodeURIComponent(v);
-        }
-      });
+      const [baseAndQuery, hash] = authUrl.split('#');
+      const query = baseAndQuery.split('?')[1];
+      if (query) {
+        query.split('&').forEach((part) => {
+          const [k, v] = part.split('=');
+          if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+        });
+      }
+      if (hash) {
+        hash.split('&').forEach((part) => {
+          const [k, v] = part.split('=');
+          if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+        });
+      }
 
       if (params.error) {
         throw new Error(params.error_description || params.error);

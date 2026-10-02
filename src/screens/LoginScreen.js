@@ -211,7 +211,7 @@ export default function LoginScreen({ navigation, route, onAuthSuccess }) {
 
     supabase.auth
       .resetPasswordForEmail(email, {
-        redirectTo: 'usertracking://reset-password',
+        redirectTo: 'customerstracker://reset-password',
       })
       .then(() => {
         Alert.alert('Success', 'Password reset email sent');

@@ -3,7 +3,7 @@ export default {
     "name": "Customers Tracker",
     "slug": "customerstracking",
     "owner": "narasimhaexpo",
-    "scheme": "usertracking",
+    "scheme": "customerstracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -44,7 +44,7 @@ export default {
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow User Tracking to access your photos to upload profile images."
+          "photosPermission": "Allow Customers Tracker to access your photos to upload profile images."
         }
       ],
       "@react-native-community/datetimepicker",
@@ -52,7 +52,7 @@ export default {
       [
         "expo-location",
         {
-          "locationAlwaysPermission": "Allow User Tracking to use your location."
+          "locationAlwaysPermission": "Allow Customers Tracker to use your location."
         }
       ],
       "expo-web-browser"

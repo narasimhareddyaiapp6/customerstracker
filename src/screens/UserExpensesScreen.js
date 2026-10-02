@@ -378,15 +378,28 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.screenContainer}>
       <FlatList
+        style={styles.flatList}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}
         data={filteredUserExpenses}
         keyExtractor={item => item.id ? item.id.toString() : item.created_at}
         renderItem={renderExpenseItem}
         ListEmptyComponent={<Text style={styles.emptyListText}>No expenses recorded.</Text>}
         ListHeaderComponent={
           <View style={styles.container}>
-            <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('Dashboard');
+                }
+              }}
+            >
               <MaterialIcons name="close" size={24} color="black" />
             </TouchableOpacity>
             <Text style={styles.sectionHeader}>Add New Expense</Text>
@@ -493,8 +506,18 @@ export default function UserExpensesScreen({ navigation, user, userProfile }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screenContainer: {
     flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  flatList: {
+    flex: 1,
+  },
+  contentContainer: {
+    flexGrow: 1,
+    paddingBottom: 60,
+  },
+  container: {
     padding: 16,
     backgroundColor: '#F5F5F5',
   },

@@ -1977,6 +1977,7 @@ export default function CreateCustomerScreen({ user, userProfile, route = {} }) 
         renderItem={renderCustomerItem}
         keyExtractor={item => item.id.toString()}
         style={styles.customerList}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 60 }}
         ListEmptyComponent={
           <View style={{ padding: 28, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={[styles.emptyListText, { fontSize: 16, color: '#555', textAlign: 'center' }]}>

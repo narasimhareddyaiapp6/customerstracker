@@ -557,17 +557,31 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
   };
 
   return (
-    <FlatList
-      data={transactions}
-      keyExtractor={item => item.id ? item.id.toString() : item.created_at}
-      renderItem={renderTransactionItem}
-      ListEmptyComponent={<Text style={styles.emptyListText}>No transactions recorded.</Text>}
-      ListHeaderComponent={
-        <View style={styles.container}>
-          <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="close" size={24} color="black" />
-          </TouchableOpacity>
-          <Text style={styles.header}>Quick Transaction</Text>
+    <View style={styles.screenContainer}>
+      <FlatList
+        style={styles.flatList}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}
+        data={transactions}
+        keyExtractor={item => item.id ? item.id.toString() : item.created_at}
+        renderItem={renderTransactionItem}
+        ListEmptyComponent={<Text style={styles.emptyListText}>No transactions recorded.</Text>}
+        ListHeaderComponent={
+          <View style={styles.container}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('Dashboard');
+                }
+              }}
+            >
+              <MaterialIcons name="close" size={24} color="black" />
+            </TouchableOpacity>
+            <Text style={styles.header}>Quick Transaction</Text>
 
           <View style={[styles.inputGroup, { zIndex: 999999, elevation: 999999, position: 'relative' }]}>
             <Text style={styles.label}>Area:</Text>
@@ -818,12 +832,23 @@ export default function QuickTransactionScreen({ navigation, user, userProfile, 
         </View>
       }
     />
+  </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screenContainer: {
     flex: 1,
+    backgroundColor: '#f0f2f5',
+  },
+  flatList: {
+    flex: 1,
+  },
+  contentContainer: {
+    flexGrow: 1,
+    paddingBottom: 60,
+  },
+  container: {
     padding: 20,
     backgroundColor: '#f0f2f5',
   },

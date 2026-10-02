@@ -453,6 +453,8 @@ export default function DashboardScreen({ user, userProfile }) {
   return (
     <View style={styles.container}>
       <FlatList
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 60 }}
         data={displayedCustomerList}
         ListHeaderComponent={
           <View style={{ zIndex: 99999, elevation: 99999, position: 'relative' }}>
