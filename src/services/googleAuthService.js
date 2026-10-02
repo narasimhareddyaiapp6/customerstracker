@@ -59,12 +59,29 @@ export async function ensureUserProfileExists(user) {
 }
 
 /**
+ * Computes the web redirect URL ensuring repository subpath (like /customerstracker/)
+ * is preserved, preventing 404 redirects on GitHub Pages or custom subdirectories.
+ */
+export function getWebRedirectUrl() {
+  if (typeof window === 'undefined') return '';
+  const { origin, pathname } = window.location;
+  if (pathname.includes('/customerstracker')) {
+    return `${origin}/customerstracker/`;
+  }
+  let cleanPath = pathname.replace(/\/index\.html$/, '');
+  if (!cleanPath.endsWith('/')) {
+    cleanPath += '/';
+  }
+  return `${origin}${cleanPath}`;
+}
+
+/**
  * Initiates Google OAuth Sign-in for both Mobile and Web platforms.
  */
 export async function signInWithGoogleOAuth() {
   try {
     if (Platform.OS === 'web') {
-      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectUrl = getWebRedirectUrl();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

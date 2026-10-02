@@ -88,6 +88,14 @@ if (fs.existsSync(distPath)) {
     console.log('Copied policy.html to dist/policy.html');
   }
 
+  // Copy index.html to 404.html for GitHub Pages SPA routing fallback
+  const indexSrc = path.join(distPath, 'index.html');
+  const notFoundDest = path.join(distPath, '404.html');
+  if (fs.existsSync(indexSrc)) {
+    fs.copyFileSync(indexSrc, notFoundDest);
+    console.log('Copied index.html to dist/404.html for SPA routing fallback');
+  }
+
   console.log('Successfully fixed paths for GitHub Pages deployment');
 } else {
   console.error('dist directory not found. Please run "npx expo export --platform web" first.');

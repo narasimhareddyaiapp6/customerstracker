@@ -273,48 +273,54 @@ function MainApp() {
         }
       });
 
-      // Deep linking handler for OAuth (Android/iOS)
-      const handleAuthDeepLink = async (url) => {
-        if (!url || (!url.includes('auth/callback') && !url.includes('customerstracker'))) return;
-        console.log('🔗 Received auth deep link:', url);
-        try {
-          const params = {};
-          const [baseAndQuery, hash] = url.split('#');
-          const query = baseAndQuery.split('?')[1];
-          if (query) {
-            query.split('&').forEach((part) => {
-              const [k, v] = part.split('=');
-              if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
-            });
-          }
-          if (hash) {
-            hash.split('&').forEach((part) => {
-              const [k, v] = part.split('=');
-              if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
-            });
-          }
+      // Deep linking handler for OAuth (Android/iOS only)
+      // On web, Supabase client automatically handles detectSessionInUrl without race conditions
+      let linkingSub;
+      if (Platform.OS !== 'web') {
+        const handleAuthDeepLink = async (url) => {
+          if (!url || (!url.includes('auth/callback') && !url.includes('customerstracker'))) return;
+          console.log('🔗 Received auth deep link:', url);
+          try {
+            const params = {};
+            const [baseAndQuery, hash] = url.split('#');
+            const query = baseAndQuery.split('?')[1];
+            if (query) {
+              query.split('&').forEach((part) => {
+                const [k, v] = part.split('=');
+                if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+              });
+            }
+            if (hash) {
+              hash.split('&').forEach((part) => {
+                const [k, v] = part.split('=');
+                if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+              });
+            }
 
-          if (params.access_token && params.refresh_token) {
-            await supabase.auth.setSession({
-              access_token: params.access_token,
-              refresh_token: params.refresh_token,
-            });
-          } else if (params.code) {
-            await supabase.auth.exchangeCodeForSession(params.code);
+            if (params.access_token && params.refresh_token) {
+              await supabase.auth.setSession({
+                access_token: params.access_token,
+                refresh_token: params.refresh_token,
+              });
+            } else if (params.code) {
+              await supabase.auth.exchangeCodeForSession(params.code);
+            }
+          } catch (err) {
+            console.error('Error handling auth deep link:', err);
           }
-        } catch (err) {
-          console.error('Error handling auth deep link:', err);
-        }
-      };
+        };
 
-      Linking.getInitialURL().then(handleAuthDeepLink);
-      const linkingSub = Linking.addEventListener('url', ({ url }) => handleAuthDeepLink(url));
+        Linking.getInitialURL().then(handleAuthDeepLink);
+        linkingSub = Linking.addEventListener('url', ({ url }) => handleAuthDeepLink(url));
+      }
 
       setIsLoading(false);
 
       return () => {
         subscription.unsubscribe();
-        linkingSub.remove();
+        if (linkingSub) {
+          linkingSub.remove();
+        }
       };
     };
     initializeApp();
