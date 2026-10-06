@@ -232,8 +232,11 @@ function MainApp() {
     return <RealtimeCollaboration user={user} userProfile={userProfile} />;
   }, [user, userProfile]);
 
-  // 🔔 Push notifications
+  // 🔔 Push notifications & notification listeners
   useEffect(() => {
+    let notificationListener;
+    let responseListener;
+
     const registerNotifications = async () => {
       if (user) {
         try {
@@ -244,6 +247,25 @@ function MainApp() {
       }
     };
     registerNotifications();
+
+    if (Platform.OS !== 'web') {
+      try {
+        notificationListener = Notifications.addNotificationReceivedListener((notification) => {
+          console.log('🔔 Notification received in foreground:', notification);
+        });
+
+        responseListener = Notifications.addNotificationResponseReceivedListener((response) => {
+          console.log('🔔 Notification tapped/responded to:', response);
+        });
+      } catch (err) {
+        console.warn('⚠️ Notification listener setup error:', err);
+      }
+    }
+
+    return () => {
+      if (notificationListener) notificationListener.remove();
+      if (responseListener) responseListener.remove();
+    };
   }, [user]);
 
   // ---------------- Initialization ----------------

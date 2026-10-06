@@ -20,7 +20,7 @@ import * as FileSystem from 'expo-file-system';
 import { supabase } from '../services/supabaseClient';
 import { Buffer } from 'buffer';
 import { OfflineStorageService } from '../services/OfflineStorageService';
-import { registerForPushNotificationsAsync } from '../services/notificationService';
+import { registerForPushNotificationsAsync, showLocalNotification } from '../services/notificationService';
 import * as Notifications from 'expo-notifications';
 import { uploadImageToStorage, deleteImageFromStorage } from '../services/StorageService';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -92,8 +92,20 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
   const [showProfileMapModal, setShowProfileMapModal] = useState(false);
 
   const checkNotificationStatus = useCallback(async () => {
-    const { status } = await Notifications.getPermissionsAsync();
-    setNotificationStatus(status);
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          setNotificationStatus(Notification.permission);
+        } else {
+          setNotificationStatus('denied');
+        }
+      } else {
+        const { status } = await Notifications.getPermissionsAsync();
+        setNotificationStatus(status);
+      }
+    } catch (e) {
+      console.warn('Error checking notification status:', e);
+    }
   }, []);
 
   useEffect(() => {
@@ -463,25 +475,45 @@ export default function ProfileScreen({ navigation, user, userProfile, reloadUse
 
   const handleSendTestNotification = async () => {
     try {
+      let push_token = null;
       const { data, error } = await supabase
         .from('user_push_tokens')
         .select('push_token')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
-        Alert.alert('Error', 'Failed to get push token. Please make sure you have enabled notifications.');
+      if (data && data.push_token) {
+        push_token = data.push_token;
+      }
+
+      // If no token exists yet, try registering now
+      if (!push_token) {
+        push_token = await registerForPushNotificationsAsync(user);
+      }
+
+      // Show local notification on web immediately
+      if (Platform.OS === 'web') {
+        showLocalNotification({
+          title: notificationTitle || 'Test Notification',
+          body: notificationMessage || 'This is a test notification from the app.',
+        });
+      }
+
+      if (!push_token) {
+        Alert.alert('Error', 'Failed to get push token. Please make sure notifications are enabled in your device/browser settings.');
         return;
       }
 
-      const { push_token } = data;
-
       const { data: result, error: functionError } = await supabase.functions.invoke('send-test-notification', {
-        body: JSON.stringify({ push_token, title: notificationTitle, message: notificationMessage }),
+        body: { push_token, title: notificationTitle, message: notificationMessage },
       });
 
       if (functionError) {
-        Alert.alert('Error', `Failed to send notification: ${functionError.message}`);
+        if (Platform.OS === 'web') {
+          Alert.alert('Success', 'Web notification triggered!');
+        } else {
+          Alert.alert('Error', `Failed to send notification: ${functionError.message}`);
+        }
       } else {
         Alert.alert('Success', 'Test notification sent successfully!');
       }

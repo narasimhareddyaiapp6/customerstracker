@@ -242,16 +242,23 @@ serve(async (req) => {
       );
     }
 
-    // 5. Send push notifications to tokens (Supports both Expo & FCM)
+    // 5. Send push notifications to tokens (Supports Expo, Web & FCM fallback)
+    const webTokens = uniqueTokens.filter((token: string) => token.startsWith("web_"));
     const expoTokens = uniqueTokens.filter((token: string) =>
       token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken[")
     );
     const fcmTokens = uniqueTokens.filter(
       (token: string) =>
-        !token.startsWith("ExponentPushToken[") && !token.startsWith("ExpoPushToken[")
+        !token.startsWith("ExponentPushToken[") &&
+        !token.startsWith("ExpoPushToken[") &&
+        !token.startsWith("web_")
     );
 
     const results: any[] = [];
+
+    if (webTokens.length > 0) {
+      results.push({ type: "web", count: webTokens.length, message: "Web users recorded for notification" });
+    }
 
     // Send Expo push notifications
     if (expoTokens.length > 0) {
@@ -259,6 +266,7 @@ serve(async (req) => {
         const expoMessages = expoTokens.map((token: string) => ({
           to: token,
           sound: "default",
+          channelId: "default",
           title: "New Activity Alert",
           body: notificationMessage,
           data: {

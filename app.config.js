@@ -30,7 +30,10 @@ export default {
         "android.permission.WAKE_LOCK",
         "android.permission.RECORD_AUDIO",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
       ],
       "package": "com.narasimhaexpo.customerstracker"
     },
@@ -40,6 +43,13 @@ export default {
       "jsEngine": "jsc"
     },
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ],
       "expo-font",
       [
         "expo-image-picker",

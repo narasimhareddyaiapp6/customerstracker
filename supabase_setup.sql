@@ -192,3 +192,36 @@ CREATE POLICY "Users can view media in groups they are a member of" ON storage.o
 
 CREATE POLICY "Users can upload media to groups they are a member of" ON storage.objects
     FOR INSERT WITH CHECK (bucket_id = 'chat_media' AND (storage.foldername(name))[1]::int IN (SELECT group_id FROM public.user_groups WHERE user_id = auth.uid()));
+
+
+-- ==========================================
+-- Push Notification Tokens Table & Policies
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public.user_push_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    push_token TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT user_push_tokens_user_id_unique UNIQUE (user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_push_tokens_user_id ON public.user_push_tokens(user_id);
+
+ALTER TABLE public.user_push_tokens ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own push token" ON public.user_push_tokens;
+CREATE POLICY "Users can view own push token" ON public.user_push_tokens
+    FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own push token" ON public.user_push_tokens;
+CREATE POLICY "Users can insert own push token" ON public.user_push_tokens
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own push token" ON public.user_push_tokens;
+CREATE POLICY "Users can update own push token" ON public.user_push_tokens
+    FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Service role full access on user_push_tokens" ON public.user_push_tokens;
+CREATE POLICY "Service role full access on user_push_tokens" ON public.user_push_tokens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
